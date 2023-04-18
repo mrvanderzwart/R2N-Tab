@@ -23,20 +23,15 @@ class CancelOut(nn.Module):
     def __init__(self, input_size, *kargs, **kwargs):
         super(CancelOut, self).__init__()
         self.weights = nn.Parameter(torch.zeros(input_size, requires_grad = True) + 4)
-        self.k = 10
         
     def forward(self, x):
         return (x * torch.sigmoid(self.weights.float()))
     
-    def drop_features(self, out, input):
-        irr = []
-        for index, tensor in enumerate(out):
-            indices = tensor.argsort()[:self.k] # get indices of first k features (least relevant)
-            irr.append(indices)
-            #for i in indices:
-                #input[index][i] = -1 # label irrelevant feature
-                
-        return input, irr
+    def drop_features(self, out, input):      
+        input[torch.where(out < 0)] = -1
+        
+        return input
+        
 
 class RuleFunction(torch.autograd.Function):
     '''
@@ -58,15 +53,9 @@ class RuleFunction(torch.autograd.Function):
             #output.append(torch.matmul(input[i], weight_copy.T))
         '''  
             
-        output = input.mm(weight.T)
-        #print(output)
-        #print(output.shape)
-        #print(hoi)
-
-        #output = torch.stack(output)   
+        output = input.mm(weight.T)  
         output = output + bias.unsqueeze(0).expand_as(output)
         output = output - (weight * (weight > 0)).sum(-1).unsqueeze(0).expand_as(output)
-        #output = output.to('cuda')
         
         return output
     
@@ -130,7 +119,7 @@ class Binarization(torch.autograd.Function):
 
         return grad_input
 
-class DRNet(nn.Module):
+class R2Ntab(nn.Module):
     def __init__(self, in_features, num_rules, out_features):
         """
         DR-Net: https://arxiv.org/pdf/2103.02826.pdf
@@ -140,7 +129,7 @@ class DRNet(nn.Module):
             num_rules (int): number of hidden neurons, which is also the maximum number of rules.
             out_features (int): the output dimension; should always be 1.
         """
-        super(DRNet, self).__init__()
+        super(R2Ntab, self).__init__()
         
         self.linear = sparse_linear('l0')
         self.cancelout_layer = CancelOut(in_features)
@@ -155,15 +144,10 @@ class DRNet(nn.Module):
         self.or_layer.bias.data.fill_(-0.5)
         
     def forward(self, input):
-        #print("start cancelout")
         out = self.cancelout_layer(input)
-        #print("start drop features")
-        out, irr = self.cancelout_layer.drop_features(out, input)
-        #print("start and")
+        out = self.cancelout_layer.drop_features(out, input)
         out = self.and_layer(out)
-        #print("start binarization")
         out = Binarization.apply(out)
-        #print("start or")
         out = self.or_layer(out)
         
         return out
@@ -279,56 +263,51 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
         return y_corrs
         
     reg_lams = [and_lam, or_lam]
-    #optimizerCancel = optim.Adam(net.cancelout_layer.parameters(), lr=lr)
+    optimizerCancel = optim.Adam(net.cancelout_layer.parameters(), lr=lr)
     optimizersRules = [optim.Adam(net.and_layer.parameters(), lr=lr), optim.Adam(net.or_layer.parameters(), lr=lr)]
 
     criterion = nn.BCEWithLogitsLoss().to(device)
+    #criterion = nn.CrossEntropyLoss().to(device)
 
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, drop_last=True, shuffle=True)
     
     with tqdm(total=epochs, desc="Epoch", bar_format="{l_bar}{bar:10}{r_bar}{bar:-10b}") as t:
         for epoch in range(epochs):
-            #print("epoch: ", epoch)
             net.to(device)
             net.train()
 
             batch_losses = []
             batch_corres = []
             for index, (x_batch, y_batch) in enumerate(train_loader):
-                #print("  index: ", index)
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device)
                 
-                #print("    start forward")
+                a = list(net.cancelout_layer.parameters())[0].clone()
+                
+                #g = list(net.cancelout_layer.parameters())[0].grad
+                #print(g)
 
                 out = net(x_batch)
                 
-                #print("    end forward")
-                
-                #optimizersCancel.zero_grad()
-                #weights_co = torch.sigmoid(list(net.cancelout_layer.parameters())[0])
-                #l1_norm = torch.norm(weights_co, 1)
-                #var = torch.var(list(net.cancelout_layer.parameters())[0]) # optional 
-                #lambda_1 = 0.001
-                #lambda_2 = 0.001
-                #lossCancel = criterion(out, y_batch.reshape(out.size())) + lambda_1 * l1_norm  - lambda_2 * var
-                
                 phase = int((epoch / num_alter) % 2)
+                optimizerCancel.zero_grad()
                 optimizersRules[phase].zero_grad()
-                loss = criterion(out, y_batch.reshape(out.size())) + reg_lams[phase] * net.regularization()
+                
+                loss = criterion(out, y_batch.reshape(out.size())) + reg_lams[phase] * net.regularization() 
                 loss.backward()
                 
-                #torch.autograd.backward([lossCancel, lossRules, lossRules])
-                
-                #optimizersCancel.step()
+                optimizerCancel.step()
                 optimizersRules[phase].step()
+                
+                b = list(net.cancelout_layer.parameters())[0].clone()
+                
+                if not torch.equal(a.data, b.data):
+                    print("works!")
 
                 corr = score(out, y_batch).sum()
 
                 batch_losses.append(loss.item())
                 batch_corres.append(corr.item())
-                
-            #print("end batch")
                 
             epoch_loss = torch.Tensor(batch_losses).mean().item()
             epoch_accu = torch.Tensor(batch_corres).sum().item() / len(train_set)
