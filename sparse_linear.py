@@ -15,6 +15,8 @@ def sparse_linear(name):
         return L0Linear
     elif name == 'reweight':
         return ReweightLinear
+    elif name == 'cancel':
+        return CancelFeatures
     else:
         raise ValueError(f'{name} linear type not supported.')
 
@@ -43,6 +45,27 @@ class Linear(nn.Linear):
         regularization = 0
         
         return regularization
+    
+    
+class CancelFeatures(nn.Linear):
+    
+    def __init__(self, in_features, out_features, linear=F.linear, *kargs, **kwargs):
+        super(CancelFeatures, self).__init__(in_features, out_features)
+        self.loc = nn.Parameter(torch.zeros(in_features))
+        self.weight = nn.Parameter(torch.zeros(in_features))
+        self.penalty = 0
+        self.linear = linear
+    
+    def forward(self, input):
+        output = self.linear(input, self.weight)
+        
+        return output
+    
+    def regularization(self):
+        self.penalty = len(self.weight < 0)
+        
+        return self.penalty
+        
 
 class L0Linear(nn.Linear):
     def __init__(self, in_features, out_features,  bias=True, linear=F.linear, loc_mean=0, loc_sdev=0.01, 
