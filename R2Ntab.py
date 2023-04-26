@@ -40,7 +40,8 @@ class DropFeatures(torch.autograd.Function):
     def forward(ctx, out, input):
         ctx.save_for_backward(input)
         
-        output = input.clone()      
+        output = input.clone()
+        out = out.mean(dim=0)
         output[torch.where(out < 0)] = -1
         
         return output
@@ -64,21 +65,13 @@ class RuleFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, weight, bias):
         ctx.save_for_backward(input, weight, bias)
-        '''
-        for i in range(len(input)): # drop irrelevant features
-            weight_copy = weight.detach().clone()
-            for j in range(len(input[i])):
-                if input[i][j] == -1:
-                    for k in range(len(weight_copy)):
-                        weight_copy[k][j] = 0 # deactivate weight
-
-            #output.append(torch.matmul(input[i], weight_copy.T))
-        '''  
-            
-        output = input.mm(weight.T)  
+    
+        reweight = weight.clone()
+        reweight[torch.where(input[0] < 0)] = 0
+        output = input.mm(reweight.t())    
         output = output + bias.unsqueeze(0).expand_as(output)
-        output = output - (weight * (weight > 0)).sum(-1).unsqueeze(0).expand_as(output)
-        
+        output = output - (reweight * (reweight > 0)).sum(-1).unsqueeze(0).expand_as(output)
+
         return output
     
     @staticmethod
@@ -312,9 +305,9 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device)
                 
-                ca = list(net.cancelout_layer.parameters())[0].clone()
-                aa = list(net.and_layer.parameters())[0].clone()
-                oa = list(net.or_layer.parameters())[0].clone()
+                #ca = list(net.cancelout_layer.parameters())[0].clone()
+                #aa = list(net.and_layer.parameters())[0].clone()
+                #oa = list(net.or_layer.parameters())[0].clone()
                 
                 #g = list(net.cancelout_layer.parameters())[0].grad
                 #print(g)
@@ -335,9 +328,9 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 
                 optimizersRules[phase].step()
                 
-                cb = list(net.cancelout_layer.parameters())[0].clone()
-                ab = list(net.and_layer.parameters())[0].clone()
-                ob = list(net.or_layer.parameters())[0].clone()
+                #cb = list(net.cancelout_layer.parameters())[0].clone()
+                #ab = list(net.and_layer.parameters())[0].clone()
+                #ob = list(net.or_layer.parameters())[0].clone()
                 
                 #print("cancel")
                 #print(net.cancelout_layer.weight.grad)
@@ -348,10 +341,15 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 #print("or")
                 #print(net.or_layer.weight.grad)
                 
-                #writer.add_scalar("Real", list(net.or_layer.parameters())[0].clone().mean(), epoch)
+                count = 0
+                for i in list(net.cancelout_layer.parameters())[0].clone():
+                    if i < 0:
+                        count += 1
                 
-                if not torch.equal(ca.data, cb.data):
-                    print("cancel weights are updated!")
+                writer.add_scalar("Cancelled weights", count, epoch)
+                
+                #if not torch.equal(ca.data, cb.data):
+                    #print("cancel weights are updated!")
                     
                 #if not torch.equal(aa.data, ab.data):
                     #print("and weights are updated!")
@@ -382,4 +380,4 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 'sparsity': sparsity,
             })
             
-    #writer.flush()
+    writer.flush()
