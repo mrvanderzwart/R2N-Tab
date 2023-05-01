@@ -13,79 +13,59 @@ import torchvision
 from tqdm import tqdm
 
 from sparse_linear import sparse_linear
-from torch.utils.tensorboard import SummaryWriter
-
-
-class CancelOut(torch.autograd.Function):
-    
-    @staticmethod
-    def forward(ctx, input, weight):
-        ctx.save_for_backward(input, weight)
-
-        return (input * torch.sigmoid(weight.float()))
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        input, weight = ctx.saved_tensors
-        
-        grad_input = grad_output*weight.float()
-        grad_weight = grad_output.t().mm(input)
-        
-        return grad_input, grad_weight
-
-
-class DropFeatures(torch.autograd.Function):
-    
-    @staticmethod
-    def forward(ctx, out, input):
-        ctx.save_for_backward(input)
-        
-        output = input.clone()
-        out = out.mean(dim=0)
-        output[torch.where(out < 0)] = -1
-        
-        return output
-        
-    @staticmethod
-    def backward(ctx, grad_output):
-        input, = ctx.saved_tensors
-        grad_input = grad_output.clone()
-        grad_input[(input < 0)] = 0
-        grad_input[(input >= 1) * (grad_output < 0)] = 0
-        
-        return grad_input, None
-        
 
 class RuleFunction(torch.autograd.Function):
     '''
     The autograd function used in the Rules Layer.
     The forward function implements the equation (1) in the paper.
-    The backward function implements the gradient of the forward function.
+    The backward function implements the gradient of the foward function.
     '''
     @staticmethod
     def forward(ctx, input, weight, bias):
         ctx.save_for_backward(input, weight, bias)
-    
-        reweight = weight.clone()
-        reweight[torch.where(input[0] < 0)] = 0
-        output = input.mm(reweight.t())    
-        output = output + bias.unsqueeze(0).expand_as(output)
-        output = output - (reweight * (reweight > 0)).sum(-1).unsqueeze(0).expand_as(output)
 
+        output = input.mm(weight.t())
+        output = output + bias.unsqueeze(0).expand_as(output)
+        output = output - (weight * (weight > 0)).sum(-1).unsqueeze(0).expand_as(output)
         return output
     
     @staticmethod
     def backward(ctx, grad_output):
         input, weight, bias = ctx.saved_tensors
-        
+
         grad_input = grad_output.mm(weight)
         grad_weight = grad_output.t().mm(input) - grad_output.sum(0).unsqueeze(1).expand_as(weight) * (weight > 0)
         grad_bias = grad_output.sum(0)
         grad_bias[(bias >= 1) * (grad_bias < 0)] = 0
-        
+
         return grad_input, grad_weight, grad_bias
+    
+class LabelFunction(torch.autograd.Function):
+    '''
+    The autograd function used in the OR Layer.
+    The forward function implements the equations (4) and (5) in the paper.
+    The backward function implements the standard STE estimator.
+    '''
+    
+    @staticmethod
+    def forward(ctx, input, weight, bias):
+        ctx.save_for_backward(input, weight, bias)
 
+        output = input.mm((weight.t() > 0).float())
+        output += bias.unsqueeze(0).expand_as(output)
+        
+        return output
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, weight, bias = ctx.saved_tensors
 
+        grad_input = grad_output.mm(weight)
+        grad_weight = grad_output.t().mm(input)
+        grad_bias = grad_output.sum(0)
+
+        return grad_input, grad_weight, grad_bias
+    
 class Binarization(torch.autograd.Function):
     '''
     The autograd function for the binarization activation in the Rules Layer.
@@ -103,42 +83,13 @@ class Binarization(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         input, = ctx.saved_tensors
-        
         grad_input = grad_output.clone()
         grad_input[(input < 0)] = 0
         grad_input[(input >= 1) * (grad_output < 0)] = 0
-        
+
         return grad_input
-    
-    
-class LabelFunction(torch.autograd.Function):
-    '''
-    The autograd function used in the OR Layer.
-    The forward function implements the equations (4) and (5) in the paper.
-    The backward function implements the standard STE estimator.
-    '''
-    
-    @staticmethod
-    def forward(ctx, input, weight, bias):
-        ctx.save_for_backward(input, weight, bias)
-    
-        output = input.mm((weight.t() > 0).float())       
-        output += bias.unsqueeze(0).expand_as(output)
-        
-        return output
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        input, weight, bias = ctx.saved_tensors
 
-        grad_input = grad_output.mm(weight)
-        grad_weight = grad_output.t().mm(input)
-        grad_bias = grad_output.sum(0)
-
-        return grad_input, grad_weight, grad_bias
-    
-
-class R2Ntab(nn.Module):
+class DRNet(nn.Module):
     def __init__(self, in_features, num_rules, out_features):
         """
         DR-Net: https://arxiv.org/pdf/2103.02826.pdf
@@ -148,11 +99,9 @@ class R2Ntab(nn.Module):
             num_rules (int): number of hidden neurons, which is also the maximum number of rules.
             out_features (int): the output dimension; should always be 1.
         """
-        super(R2Ntab, self).__init__()
+        super(DRNet, self).__init__()
         
         self.linear = sparse_linear('l0')
-        self.cancel = sparse_linear('cancel')
-        self.cancelout_layer = self.cancel(in_features, 1, linear=CancelOut.apply)
         self.and_layer = self.linear(in_features, num_rules, linear=RuleFunction.apply)
         self.or_layer = self.linear(num_rules, out_features, linear=LabelFunction.apply)
 
@@ -163,9 +112,7 @@ class R2Ntab(nn.Module):
         self.or_layer.bias.requires_grad = False
         self.or_layer.bias.data.fill_(-0.5)
         
-    def forward(self, input):
-        out = self.cancelout_layer(input)
-        out = DropFeatures.apply(out, input)
+    def forward(self, out):
         out = self.and_layer(out)
         out = Binarization.apply(out)
         out = self.or_layer(out)
@@ -180,7 +127,7 @@ class R2Ntab(nn.Module):
             regularization (float): the regularization term.
         """
         
-        regularization = ((self.and_layer.regularization(axis=1) + 1) * self.or_layer.regularization(mean=False) * self.cancelout_layer.regularization()).mean()
+        regularization = ((self.and_layer.regularization(axis=1) + 1) * self.or_layer.regularization(mean=False)).mean()
         
         return regularization
     
@@ -273,7 +220,7 @@ class R2Ntab(nn.Module):
         model.load_state_dict(state['state_dict'])
         
         return model
-
+        
 def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000, lr=1e-2, 
           and_lam=1e-2, or_lam=1e-5, num_alter=500):
     def score(out, y):
@@ -283,16 +230,11 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
         return y_corrs
         
     reg_lams = [and_lam, or_lam]
-    optimizerCancel = optim.Adam(net.cancelout_layer.parameters(), lr=5e-3)
-    optimizersRules = [optim.Adam(net.and_layer.parameters(), lr=lr), optim.Adam(net.or_layer.parameters(), lr=lr)]
+    optimizers = [optim.Adam(net.and_layer.parameters(), lr=lr), optim.Adam(net.or_layer.parameters(), lr=lr)]
 
     criterion = nn.BCEWithLogitsLoss().to(device)
-    #criterion = nn.MSELoss().to(device)
-    #criterion = nn.CrossEntropyLoss().to(device)
 
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, drop_last=True, shuffle=True)
-    
-    #writer = SummaryWriter()
     
     with tqdm(total=epochs, desc="Epoch", bar_format="{l_bar}{bar:10}{r_bar}{bar:-10b}") as t:
         for epoch in range(epochs):
@@ -304,64 +246,19 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
             for index, (x_batch, y_batch) in enumerate(train_loader):
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device)
-                
-                #ca = list(net.cancelout_layer.parameters())[0].clone()
-                #aa = list(net.and_layer.parameters())[0].clone()
-                #oa = list(net.or_layer.parameters())[0].clone()
-                
-                #g = list(net.cancelout_layer.parameters())[0].grad
-                #print(g)
 
                 out = net(x_batch)
                 
                 phase = int((epoch / num_alter) % 2)
-                optimizerCancel.zero_grad()
-                optimizersRules[phase].zero_grad()
-                
                 loss = criterion(out, y_batch.reshape(out.size())) + reg_lams[phase] * net.regularization()
-
-                #print("start backward")
+                optimizers[phase].zero_grad()
                 loss.backward()
-                #print("end backward")
-                
-                optimizerCancel.step()
-                
-                optimizersRules[phase].step()
-                
-                #cb = list(net.cancelout_layer.parameters())[0].clone()
-                #ab = list(net.and_layer.parameters())[0].clone()
-                #ob = list(net.or_layer.parameters())[0].clone()
-                
-                #print("cancel")
-                #print(net.cancelout_layer.weight.grad)
-                
-                #print("and")
-                #print(net.and_layer.weight.grad)
-                
-                #print("or")
-                #print(net.or_layer.weight.grad)
-                
-                #count = 0
-                #for i in list(net.cancelout_layer.parameters())[0].clone():
-                    #if i < 0:
-                        #count += 1
-                
-                #writer.add_scalar("Cancelled weights", count, epoch)
-                
-                #if not torch.equal(ca.data, cb.data):
-                    #print("cancel weights are updated!")
-                    
-                #if not torch.equal(aa.data, ab.data):
-                    #print("and weights are updated!")
-                    
-                #if not torch.equal(oa.data, ob.data):
-                    #print("or weights are updated!")
+                optimizers[phase].step()
 
                 corr = score(out, y_batch).sum()
 
                 batch_losses.append(loss.item())
                 batch_corres.append(corr.item())
-                
             epoch_loss = torch.Tensor(batch_losses).mean().item()
             epoch_accu = torch.Tensor(batch_corres).sum().item() / len(train_set)
 
@@ -379,5 +276,3 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 'num rules': num_rules,
                 'sparsity': sparsity,
             })
-            
-    #writer.flush()
