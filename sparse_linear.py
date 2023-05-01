@@ -62,7 +62,7 @@ class CancelFeatures(nn.Linear):
         return output
     
     def regularization(self):
-        self.penalty = len(self.weight < 0)
+        self.penalty = len(self.weight > 0)
         
         return self.penalty
         
