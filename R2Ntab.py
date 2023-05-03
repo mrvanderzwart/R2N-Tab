@@ -22,7 +22,7 @@ class CancelOut(torch.autograd.Function):
     def forward(ctx, input, weight):
         ctx.save_for_backward(input, weight)
 
-        return (input * torch.sigmoid(weight.float()))
+        return (torch.sigmoid(weight.float()).expand_as(input))
     
     @staticmethod
     def backward(ctx, grad_output):
