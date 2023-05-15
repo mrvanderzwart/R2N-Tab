@@ -53,8 +53,9 @@ class CancelFeatures(nn.Linear):
         super(CancelFeatures, self).__init__(in_features, out_features)
         self.loc = nn.Parameter(torch.zeros(in_features))
         self.weight = nn.Parameter(torch.zeros(in_features))
-        self.penalty = 0
+        self.penalty = 1
         self.linear = linear
+        self.input_size = in_features
     
     def forward(self, input):
         output = self.linear(input, self.weight)
@@ -62,7 +63,7 @@ class CancelFeatures(nn.Linear):
         return output
     
     def regularization(self):
-        self.penalty = len(self.weight > 0)
+        self.penalty = ((self.weight >= 0).sum().item())/self.input_size
         
         return self.penalty
         

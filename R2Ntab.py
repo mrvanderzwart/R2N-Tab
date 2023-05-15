@@ -50,9 +50,11 @@ class RuleFunction(torch.autograd.Function):
         ctx.save_for_backward(input, weight, bias)
         
         reweight = weight.clone()
-        indices = torch.where(input[0] == -1)
+        
+        indices = torch.where(input[0] == -1)[0]
         for index in indices:
             reweight[:,index] = 0
+            
         output = input.mm(reweight.t())    
         output = output + bias.unsqueeze(0).expand_as(output)
         output = output - (reweight * (reweight > 0)).sum(-1).unsqueeze(0).expand_as(output)
@@ -155,8 +157,14 @@ class R2Ntab(nn.Module):
         out = self.or_layer(out)
         
         return out
+        
+    def cancel_features(self):
+        with torch.no_grad():
+            indices = torch.where(self.cancelout_layer.weight < 0)[0]
+            for index in indices:
+                self.and_layer.weight[:,index] = 0
     
-    def regularization(self):
+    def regularization(self, layer):
         """
         Implements the Sparsity-Based Regularization (equation 7).
         
@@ -164,7 +172,10 @@ class R2Ntab(nn.Module):
             regularization (float): the regularization term.
         """
         
-        regularization = ((self.and_layer.regularization(axis=1)+1) * self.or_layer.regularization(mean=False) * (self.cancelout_layer.regularization()+1)).mean()
+        if layer == 'rules':
+            regularization = ((self.and_layer.regularization(axis=1)+1) * self.or_layer.regularization(mean=False)).mean()
+        elif layer == 'cancel':
+            regularization = self.cancelout_layer.regularization()
         
         return regularization
     
@@ -259,7 +270,7 @@ class R2Ntab(nn.Module):
         return model
 
 def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000, lr_rules=1e-2, 
-          lr_cancel=5e-3, and_lam=1e-2, or_lam=1e-5, num_alter=500, track_performance=False, dummy_index=None):
+          lr_cancel=5e-3, and_lam=1e-2, or_lam=1e-5, cancel_lam=1e-3, num_alter=500, track_performance=False, dummy_index=None):
     def score(out, y):
         y_labels = (out >= 0).float()
         y_corrs = (y_labels == y.reshape(y_labels.size())).float()
@@ -292,23 +303,30 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 out = net(x_batch)
                 
                 phase = int((epoch / num_alter) % 2)
+                
+                model_performance = criterion(out, y_batch.reshape(out.size()))
+                
                 optimizerCancel.zero_grad()
                 optimizersRules[phase].zero_grad()
                 
-                loss = criterion(out, y_batch.reshape(out.size())) + reg_lams[phase] * net.regularization()
+                cancel_loss = model_performance + cancel_lam * net.regularization('cancel')
+                rule_loss = model_performance + reg_lams[phase] * net.regularization('rules')
 
-                loss.backward()
+                cancel_loss.backward(retain_graph=True)
+                if epoch>500:
+                    optimizerCancel.step()
                 
-                optimizerCancel.step()
-                
+                rule_loss.backward()
                 optimizersRules[phase].step()
+                
+                loss = cancel_loss + rule_loss - model_performance
 
                 corr = score(out, y_batch).sum()
 
                 batch_losses.append(loss.item())
                 batch_corres.append(corr.item())
                 
-            count = (net.cancelout_layer.weight > 0).sum().item()
+            count = (net.cancelout_layer.weight < 0).sum().item()
                 
             writer.add_scalar("CancelOut weights over time", count, epoch)
                 
@@ -317,11 +335,12 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
             
             #print((net.cancelout_layer.weight > 0).sum().item())
             
-            epoch_rules = net.get_rules()
             if dummy_index is not None:
                 count_dummies = 0
-                for idx in range(dummy_index, epoch_rules.shape[1]):
-                    count_dummies += (1 not in epoch_rules[:,idx])
+                for idx in range(dummy_index, len(net.cancelout_layer.weight)):
+                    count_dummies += (net.cancelout_layer.weight[idx] < 0)
+                    
+                dummies.append(count_dummies)
 
             net.to('cpu')
             net.eval()
@@ -341,6 +360,8 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 'num rules': num_rules,
                 'sparsity': sparsity,
             })
+            
+    net.cancel_features()
             
     writer.flush()
     
