@@ -221,8 +221,8 @@ class DRNet(nn.Module):
         
         return model
         
-def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000, lr=1e-2, 
-          and_lam=1e-2, or_lam=1e-5, num_alter=500):
+def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000, lr_rules=1e-2, 
+          and_lam=1e-2, or_lam=1e-5, num_alter=500, track_performance=False):
     def score(out, y):
         y_labels = (out >= 0).float()
         y_corrs = (y_labels == y.reshape(y_labels.size())).float()
@@ -230,9 +230,11 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
         return y_corrs
         
     reg_lams = [and_lam, or_lam]
-    optimizers = [optim.Adam(net.and_layer.parameters(), lr=lr), optim.Adam(net.or_layer.parameters(), lr=lr)]
+    optimizers = [optim.Adam(net.and_layer.parameters(), lr=lr_rules), optim.Adam(net.or_layer.parameters(), lr=lr_rules)]
 
     criterion = nn.BCEWithLogitsLoss().to(device)
+    
+    accuracies, rules = [], []
 
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, drop_last=True, shuffle=True)
     
@@ -268,6 +270,9 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 test_accu = score(net(test_set[:][0]), test_set[:][1]).mean().item()
                 sparsity, num_rules = net.statistics()
                 
+                accuracies.append(test_accu)
+                rules.append(num_rules)
+                
             t.update(1)
             t.set_postfix({
                 'loss': epoch_loss,
@@ -276,3 +281,6 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 'num rules': num_rules,
                 'sparsity': sparsity,
             })
+            
+    if track_performance:
+        return accuracies, rules

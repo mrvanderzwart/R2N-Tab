@@ -23,7 +23,10 @@ class CancelOut(torch.autograd.Function):
         
         output = input.clone()
         
-        output[torch.where(weight.expand_as(input) < 0)] = -1
+        indices = torch.where(weight < 0)
+        
+        for index in indices:
+            output[:,index] -= 2
         
         return output
         
@@ -35,7 +38,10 @@ class CancelOut(torch.autograd.Function):
         grad_input[(input >= 1) * (grad_output < 0)] = 0
         
         grad_weight = grad_output.clone()
-        grad_weight[torch.where(weight.expand_as(input) < 0)] = 0
+        #print("voor")
+        #print(grad_weight)
+        #print("na")
+        #print(grad_weight)
         
         return grad_input, grad_weight
         
@@ -47,14 +53,15 @@ class RuleFunction(torch.autograd.Function):
     The backward function implements the gradient of the forward function.
     '''
     @staticmethod
-    def forward(ctx, input, weight, bias):
-        ctx.save_for_backward(input, weight, bias)
-        
+    def forward(ctx, input, weight, bias):        
         reweight = weight.clone()
         
-        indices = torch.where(input[0] == -1)[0]
-        for index in indices:
-            reweight[:,index] = 0
+        for index in range(input.size(1)):
+            if not torch.any(input[:,index] > 0):
+                input[:,index] += 2
+                reweight[:,index] = 0
+                
+        ctx.save_for_backward(input, weight, bias)
             
         output = input.mm(reweight.t())    
         output = output + bias.unsqueeze(0).expand_as(output)
@@ -165,7 +172,7 @@ class R2Ntab(nn.Module):
             for index in indices:
                 self.and_layer.weight[:,index] = 0
     
-    def regularization(self, layer):
+    def regularization(self, phase):
         """
         Implements the Sparsity-Based Regularization (equation 7).
         
@@ -173,10 +180,12 @@ class R2Ntab(nn.Module):
             regularization (float): the regularization term.
         """
         
-        if layer == 'rules':
-            regularization = ((self.and_layer.regularization(axis=1)+1) * self.or_layer.regularization(mean=False)).mean()
-        elif layer == 'cancel':
-            regularization = self.cancelout_layer.regularization()
+        #if phase == 0 or phase == 2:
+        #    regularization = ((self.and_layer.regularization(axis=1)+1) * self.or_layer.regularization(mean=False)).mean()
+        #elif phase == 1:
+        #    regularization = self.cancelout_layer.regularization()
+        
+        regularization = ((self.and_layer.regularization(axis=1)+1) * self.or_layer.regularization(mean=False) * self.cancelout_layer.regularization()+1).mean()
         
         return regularization
     
@@ -278,9 +287,11 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
         
         return y_corrs
         
-    reg_lams = [and_lam, or_lam]
-    optimizerCancel = optim.Adam(net.cancelout_layer.parameters(), lr=lr_cancel)
-    optimizersRules = [optim.Adam(net.and_layer.parameters(), lr=lr_rules), optim.Adam(net.or_layer.parameters(), lr=lr_rules)]
+    reg_lams = [and_lam, cancel_lam, or_lam]
+
+    optimizers = [optim.Adam(net.and_layer.parameters(), lr=lr_rules),
+                  optim.Adam(net.cancelout_layer.parameters(), lr=lr_cancel),
+                  optim.Adam(net.or_layer.parameters(), lr=lr_rules)]
 
     criterion = nn.BCEWithLogitsLoss().to(device)
 
@@ -305,21 +316,19 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
 
                 out = net(x_batch)
                 
-                phase = int((epoch / num_alter) % 2)
+                phase = int((epoch / num_alter) % 3)
                 
-                optimizerCancel.zero_grad()
-                optimizersRules[phase].zero_grad()
+                optimizers[phase].zero_grad()
                 
-                loss = criterion(out, y_batch.reshape(out.size())) + cancel_lam * net.regularization('cancel') + reg_lams[phase] * net.regularization('rules')
+                loss = criterion(out, y_batch.reshape(out.size())) + reg_lams[phase] * net.regularization(phase)
                 
-                c = net.regularization('cancel')
-                r = net.regularization('rules')
-                l = criterion(out, y_batch.reshape(out.size()))
+                #c = net.regularization('cancel')
+                #r = net.regularization('rules')
+                #l = criterion(out, y_batch.reshape(out.size()))
 
                 loss.backward()
                 
-                optimizerCancel.step()
-                optimizersRules[phase].step()
+                optimizers[phase].step()
 
                 corr = score(out, y_batch).sum()
 
@@ -332,8 +341,6 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 
             epoch_loss = torch.Tensor(batch_losses).mean().item()
             epoch_accu = torch.Tensor(batch_corres).sum().item() / len(train_set)
-            
-            #print((net.cancelout_layer.weight > 0).sum().item())
             
             if dummy_index is not None:
                 count_dummies = 0
@@ -349,9 +356,9 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 sparsity, num_rules = net.statistics()
                 
                 accuracies.append(test_accu)
-                cancel_reg.append(c)
-                rule_reg.append(r)
-                loss_ot.append(l)
+                #cancel_reg.append(c)
+                #rule_reg.append(r)
+                #loss_ot.append(l)
                 rules.append(num_rules)
                 
             t.update(1)
@@ -369,7 +376,7 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
     writer.flush()
     
     if track_performance:
-        return accuracies, cancel_reg, rule_reg, loss_ot
+        return accuracies, rules#cancel_reg, rule_reg, loss_ot
     
     if dummy_index is not None:
         return dummies
