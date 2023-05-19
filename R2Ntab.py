@@ -19,7 +19,7 @@ class CancelOut(torch.autograd.Function):
     
     @staticmethod
     def forward(ctx, input, weight):
-        ctx.save_for_backward(input)
+        ctx.save_for_backward(input, weight)
         
         output = input.clone()
         
@@ -29,12 +29,13 @@ class CancelOut(torch.autograd.Function):
         
     @staticmethod
     def backward(ctx, grad_output):
-        input, = ctx.saved_tensors
+        input, weight = ctx.saved_tensors
         grad_input = grad_output.clone()
         grad_input[(input < 0)] = 0
         grad_input[(input >= 1) * (grad_output < 0)] = 0
         
-        grad_weight = grad_output.t().mm(grad_input)
+        grad_weight = grad_output.clone()
+        grad_weight[torch.where(weight.expand_as(input) < 0)] = 0
         
         return grad_input, grad_weight
         
@@ -287,7 +288,7 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
     
     accuracies, rules, dummies = [], [], []
     
-    performance, cancel_sparsity, rule_sparsity = [], [], []
+    cancel_reg, rule_reg, loss_ot = [], [], []
     
     writer = SummaryWriter()
     
@@ -305,25 +306,19 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 out = net(x_batch)
                 
                 phase = int((epoch / num_alter) % 2)
-
+                
                 optimizerCancel.zero_grad()
                 optimizersRules[phase].zero_grad()
                 
-                cancel_factor = cancel_lam
-                if epoch < 500:
-                    cancel_factor = 0
+                loss = criterion(out, y_batch.reshape(out.size())) + cancel_lam * net.regularization('cancel') + reg_lams[phase] * net.regularization('rules')
                 
-                loss = criterion(out, y_batch.reshape(out.size())) + cancel_lam * net.regularization('cancel') + \
-                       reg_lams[phase] * net.regularization('rules')
-                
-                performance.append(criterion(out, y_batch.reshape(out.size())))
-                cancel_sparsity.append(cancel_lam * net.regularization('cancel'))
-                rule_sparsity.append(reg_lams[phase] * net.regularization('rules'))
+                c = net.regularization('cancel')
+                r = net.regularization('rules')
+                l = criterion(out, y_batch.reshape(out.size()))
 
                 loss.backward()
                 
-                if epoch > 500:
-                    optimizerCancel.step()
+                optimizerCancel.step()
                 optimizersRules[phase].step()
 
                 corr = score(out, y_batch).sum()
@@ -354,6 +349,9 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 sparsity, num_rules = net.statistics()
                 
                 accuracies.append(test_accu)
+                cancel_reg.append(c)
+                rule_reg.append(r)
+                loss_ot.append(l)
                 rules.append(num_rules)
                 
             t.update(1)
@@ -371,7 +369,7 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
     writer.flush()
     
     if track_performance:
-        return performance, cancel_sparsity, rule_sparsity
+        return accuracies, cancel_reg, rule_reg, loss_ot
     
     if dummy_index is not None:
         return dummies
