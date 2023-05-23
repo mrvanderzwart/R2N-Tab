@@ -52,7 +52,7 @@ class CancelFeatures(nn.Linear):
     def __init__(self, in_features, out_features, linear=F.linear, *kargs, **kwargs):
         super(CancelFeatures, self).__init__(in_features, out_features)
         self.loc = nn.Parameter(torch.zeros(in_features))
-        self.weight = nn.Parameter(torch.zeros(in_features))
+        self.weight = nn.Parameter(torch.zeros(in_features)+4)
         self.penalty = 1
         self.linear = linear
         self.input_size = in_features

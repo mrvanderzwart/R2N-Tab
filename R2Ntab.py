@@ -29,22 +29,15 @@ class CancelOut(torch.autograd.Function):
             output[:,index] -= 2
         
         return output
-        
+    
     @staticmethod
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
-        grad_input = grad_output.clone()
-        grad_input[(input < 0)] = 0
-        grad_input[(input >= 1) * (grad_output < 0)] = 0
         
         grad_weight = grad_output.clone()
-        #print("voor")
-        #print(grad_weight)
-        #print("na")
-        #print(grad_weight)
         
-        return grad_input, grad_weight
-        
+        return None, grad_weight
+    
 
 class RuleFunction(torch.autograd.Function):
     '''
@@ -53,19 +46,17 @@ class RuleFunction(torch.autograd.Function):
     The backward function implements the gradient of the forward function.
     '''
     @staticmethod
-    def forward(ctx, input, weight, bias):        
-        reweight = weight.clone()
-        
+    def forward(ctx, input, weight, bias):                
         for index in range(input.size(1)):
-            if not torch.any(input[:,index] > 0):
+            if not torch.any(input[:,index] >= 0):
                 input[:,index] += 2
-                reweight[:,index] = 0
-                
-        ctx.save_for_backward(input, weight, bias)
+                weight[:,index] = 0
             
-        output = input.mm(reweight.t())    
+        ctx.save_for_backward(input, weight, bias)            
+            
+        output = input.mm(weight.t())    
         output = output + bias.unsqueeze(0).expand_as(output)
-        output = output - (reweight * (reweight > 0)).sum(-1).unsqueeze(0).expand_as(output)
+        output = output - (weight * (weight > 0)).sum(-1).unsqueeze(0).expand_as(output)
 
         return output
     
@@ -166,28 +157,23 @@ class R2Ntab(nn.Module):
         
         return out
         
-    def cancel_features(self):
+    def reweight_layer(self):
         with torch.no_grad():
             indices = torch.where(self.cancelout_layer.weight < 0)[0]
             for index in indices:
                 self.and_layer.weight[:,index] = 0
     
-    def regularization(self, phase):
+    def regularization(self):
         """
         Implements the Sparsity-Based Regularization (equation 7).
         
         Returns
             regularization (float): the regularization term.
         """
+
+        sparsity = ((self.and_layer.regularization(axis=1)+1) * self.or_layer.regularization(mean=False)).mean()
         
-        #if phase == 0 or phase == 2:
-        #    regularization = ((self.and_layer.regularization(axis=1)+1) * self.or_layer.regularization(mean=False)).mean()
-        #elif phase == 1:
-        #    regularization = self.cancelout_layer.regularization()
-        
-        regularization = ((self.and_layer.regularization(axis=1)+1) * self.or_layer.regularization(mean=False) * self.cancelout_layer.regularization()+1).mean()
-        
-        return regularization
+        return sparsity
     
     def statistics(self):
         """
@@ -199,7 +185,13 @@ class R2Ntab(nn.Module):
         """
         
         rule_indices = (self.or_layer.masked_weight() != 0).nonzero()[:, 1]
-        sparsity = (self.and_layer.masked_weight()[rule_indices] == 0).float().mean().item()
+        
+        reweight = self.and_layer.masked_weight().clone()
+        indices = torch.where(self.cancelout_layer.weight < 0)     
+        for index in indices:
+            reweight[:,index] = 0
+        
+        sparsity = (reweight[rule_indices] == 0).float().mean().item()
         num_rules = rule_indices.size(0)
         return sparsity, num_rules
             
@@ -287,19 +279,20 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
         
         return y_corrs
         
-    reg_lams = [and_lam, cancel_lam, or_lam]
+    reg_lams = [and_lam, or_lam]
 
     optimizers = [optim.Adam(net.and_layer.parameters(), lr=lr_rules),
-                  optim.Adam(net.cancelout_layer.parameters(), lr=lr_cancel),
                   optim.Adam(net.or_layer.parameters(), lr=lr_rules)]
+    
+    optimizer_cancel = optim.Adam(net.cancelout_layer.parameters(), lr=lr_cancel)
 
     criterion = nn.BCEWithLogitsLoss().to(device)
 
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, drop_last=True, shuffle=True)
     
-    accuracies, rules, dummies = [], [], []
+    losses, performance_constraint, cancel_constraint, rule_constraint = [], [], [], []
     
-    cancel_reg, rule_reg, loss_ot = [], [], []
+    accuracies, rules = [], []
     
     writer = SummaryWriter()
     
@@ -310,25 +303,36 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
 
             batch_losses = []
             batch_corres = []
+            
+            and_layer_weight = net.and_layer.weight
             for index, (x_batch, y_batch) in enumerate(train_loader):
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device)
+                
+                net.and_layer.weight = and_layer_weight
 
                 out = net(x_batch)
                 
-                phase = int((epoch / num_alter) % 3)
+                phase = int((epoch / num_alter) % 2)
                 
                 optimizers[phase].zero_grad()
+                optimizer_cancel.zero_grad()
                 
-                loss = criterion(out, y_batch.reshape(out.size())) + reg_lams[phase] * net.regularization(phase)
+                performance = criterion(out, y_batch.reshape(out.size()))
+                sparsity = net.regularization()
                 
-                #c = net.regularization('cancel')
-                #r = net.regularization('rules')
-                #l = criterion(out, y_batch.reshape(out.size()))
+                loss = performance + reg_lams[phase] * sparsity
 
                 loss.backward()
                 
+                losses.append(loss)
+                
                 optimizers[phase].step()
+                optimizer_cancel.step()
+                    
+                performance_constraint.append(performance)
+                cancel_constraint.append((net.cancelout_layer.weight < 0).sum().item())
+                rule_constraint.append(sparsity)
 
                 corr = score(out, y_batch).sum()
 
@@ -358,8 +362,9 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 accuracies.append(test_accu)
                 #cancel_reg.append(c)
                 #rule_reg.append(r)
-                #loss_ot.append(l)
+                #loss_ot.append(loss)
                 rules.append(num_rules)
+                #cancelled.append(count)
                 
             t.update(1)
             t.set_postfix({
@@ -371,12 +376,13 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 'sparsity': sparsity,
             })
             
-    net.cancel_features()
+    net.reweight_layer()
             
     writer.flush()
     
     if track_performance:
-        return accuracies, rules#cancel_reg, rule_reg, loss_ot
+        #return performance_constraint, cancel_constraint, rule_constraint
+        return accuracies, rules
     
     if dummy_index is not None:
         return dummies

@@ -250,7 +250,7 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 y_batch = y_batch.to(device)
 
                 out = net(x_batch)
-                
+                            
                 phase = int((epoch / num_alter) % 2)
                 loss = criterion(out, y_batch.reshape(out.size())) + reg_lams[phase] * net.regularization()
                 optimizers[phase].zero_grad()
