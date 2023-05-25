@@ -173,6 +173,9 @@ class R2Ntab(nn.Module):
 
         sparsity = ((self.and_layer.regularization(axis=1)+1) * self.or_layer.regularization(mean=False)).mean()
         
+        #print('sparsity: ')
+        #print(sparsity)
+        
         return sparsity
     
     def statistics(self):
@@ -304,6 +307,12 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
             batch_losses = []
             batch_corres = []
             
+            #if epoch > 100:
+                #optimizer_cancel = optim.Adam(net.cancelout_layer.parameters(), lr=lr_cancel*2)
+                
+            #if epoch > 200:
+                #optimizer_cancel = optim.Adam(net.cancelout_layer.parameters(), lr=lr_cancel)
+            
             and_layer_weight = net.and_layer.weight
             for index, (x_batch, y_batch) in enumerate(train_loader):
                 x_batch = x_batch.to(device)
@@ -321,14 +330,16 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 performance = criterion(out, y_batch.reshape(out.size()))
                 sparsity = net.regularization()
                 
-                loss = performance + reg_lams[phase] * sparsity
+                #if epoch < 250 or epoch >= 500:
+                loss = performance + reg_lams[phase] * sparsity + cancel_lam * net.cancelout_layer.regularization()
 
                 loss.backward()
                 
                 losses.append(loss)
                 
                 optimizers[phase].step()
-                optimizer_cancel.step()
+                if epoch >= 50 and epoch < 500:
+                    optimizer_cancel.step()
                     
                 performance_constraint.append(performance)
                 cancel_constraint.append((net.cancelout_layer.weight < 0).sum().item())
