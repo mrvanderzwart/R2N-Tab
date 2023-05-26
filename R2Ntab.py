@@ -338,7 +338,7 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 losses.append(loss)
                 
                 optimizers[phase].step()
-                if epoch >= 50:
+                if epoch >= 100:
                     optimizer_cancel.step()
                     
                 performance_constraint.append(performance)
