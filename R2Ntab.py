@@ -387,7 +387,7 @@ def train(net, train_set, test_set, device="cuda", epochs=2000, batch_size=2000,
                 'sparsity': sparsity,
             })
             
-    net.reweight_layer()
+    #net.reweight_layer()
             
     #writer.flush()
     #return accuracies
