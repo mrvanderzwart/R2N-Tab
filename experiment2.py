@@ -17,25 +17,17 @@ def transform_dataset_dummies(
     METHOD = ["origin", "ordinal", "onehot", "onehot-compare"]
     LABELS = ["ordinal", "binary", "onehot"]
     if method not in METHOD:
-        raise ValueError(
-            f"method={method} is not a valid option. The options are {METHOD}"
-        )
+        raise ValueError(f"method={method} is not a valid option. The options are {METHOD}")
     if labels not in LABELS:
-        raise ValueError(
-            f"labels={labels} is not a valid option. The options are {LABELS}"
-        )
+        raise ValueError(f"labels={labels} is not a valid option. The options are {LABELS}")
 
-    table_X, table_Y, categorical_cols, numerical_cols = predefined_dataset(
-        name, binary_y=labels == "binary"
-    )
+    table_X, table_Y, categorical_cols, numerical_cols = predefined_dataset(name, binary_y=labels == "binary")
 
     for i in range(n_dummies):
         table_X[f"dummy{i}"] = random.choices([1, 2, 3], k=len(table_X))
 
     if categorical_cols is None:
-        categorical_cols = list(
-            table_X.columns[(table_X.dtypes == np.dtype("O")).to_numpy().nonzero()[0]]
-        )
+        categorical_cols = list(table_X.columns[(table_X.dtypes == np.dtype("O")).to_numpy().nonzero()[0]])
     if numerical_cols is None:
         numerical_cols = [
             col
