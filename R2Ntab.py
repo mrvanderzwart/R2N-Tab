@@ -15,7 +15,7 @@ from tqdm import tqdm
 from sparse_linear import sparse_linear
 from torch.utils.tensorboard import SummaryWriter
 from DRNet import RuleFunction, LabelFunction, Binarization as RuleBinarization
-
+from sklearn.metrics import roc_auc_score
 
 class CancelOut(nn.Module):
 
@@ -66,6 +66,8 @@ class R2Ntab(nn.Module):
     def __init__(self, in_features, num_rules, out_features):
 
         super(R2Ntab, self).__init__()
+
+        self.n_features = in_features
         
         self.linear = sparse_linear('l0')
         self.cancelout_layer = CancelOut(in_features)
@@ -140,7 +142,7 @@ class R2Ntab(nn.Module):
 
         return rules 
 
-    def predict(self, X, Y):
+    def predict(self, X, Y, metric='accuracy'):
         X = np.array(X)
         rules = self.extract_rules()
         
@@ -151,16 +153,27 @@ class R2Ntab(nn.Module):
             results.append(result)
             
         Y_pred = np.array(results)
-        
-        return (Y == Y_pred).mean()
+
+        if metric == 'accuracy':
+            return (Y == Y_pred).mean()
+        elif metric == 'auc':
+            return roc_auc_score(Y, Y_pred)
 
     def fit(self, train_set, test_set, device='cpu', lr_rules=1e-2, lr_cancel=5e-3, and_lam=1e-2, or_lam=1e-5, 
-            cancel_lam=1e-4, epochs=2000, num_alter=500, batch_size=400, track_performance=False, dummy_index=None):
+            cancel_lam=1e-4, epochs=2000, num_alter=500, batch_size=400, track_performance=False, dummy_index=None, dynamic=False):
         def score(out, y):
             y_labels = (out >= 0).float()
             y_corrs = (y_labels == y.reshape(y_labels.size())).float()
 
             return y_corrs
+
+        assert batch_size <= len(train_set), f"Batch size ({batch_size}) should be equal or smaller than the number of training examples ({len(train_set)})."
+
+        if dynamic:
+            epochs=100000
+            headers = ['a' + str(i) for i in range(1, self.n_features)]
+            rules = self.extract_rules(headers)
+            old_conds = sum(map(len, rules))
 
         reg_lams = [and_lam, or_lam]
 
@@ -176,6 +189,7 @@ class R2Ntab(nn.Module):
         dummies, accuracies, epoch_accus = [], [], []
 
         old_accu = score(self(test_set[:][0]), test_set[:][1]).mean().item()
+        old_cancelled = len(torch.where(self.cancelout_layer.weight < 0)[0])
         stop_cancel = False
         for epoch in tqdm(range(epochs), ncols=60):
             self.to(device)
@@ -186,12 +200,24 @@ class R2Ntab(nn.Module):
 
             if epoch%50 == 0 and epoch > 0 and not stop_cancel:
                 new_accu = sum(epoch_accus) / len(epoch_accus)
-                if old_accu > new_accu:
+                new_cancelled = len(torch.where(self.cancelout_layer.weight < 0)[0])
+                if old_accu > new_accu and new_cancelled > old_cancelled:
                     stop_cancel = True
-                    print(epoch)
 
                 old_accu = new_accu
+                old_cancelled = new_cancelled
                 epoch_accus = []
+
+            if epoch%1000 == 0 and epoch > 0 and dynamic:
+                rules = self.extract_rules(headers)
+                new_conds = sum(map(len, rules))
+                if not new_conds < old_conds:
+                    break
+
+                old_conds = new_conds
+                
+                self.to(device)
+                self.train()
 
             for index, (x_batch, y_batch) in enumerate(train_loader):
                 x_batch = x_batch.to(device)
