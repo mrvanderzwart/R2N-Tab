@@ -15,7 +15,7 @@ from tqdm import tqdm
 from sparse_linear import sparse_linear
 from torch.utils.tensorboard import SummaryWriter
 from DRNet import RuleFunction, LabelFunction, Binarization as RuleBinarization
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import accuracy_score, roc_auc_score
 
 class CancelOut(nn.Module):
 
@@ -26,11 +26,6 @@ class CancelOut(nn.Module):
         
     def forward(self, x):
         result = x * self.relu(self.weight.float())
-        
-        indices = torch.where(self.weight < 0)[0]
-
-        for index in indices:
-            assert torch.all(result[:, index] == 0), 'Features not properly cancelled'
         
         return result
     
@@ -57,7 +52,6 @@ class CancelBinarization(torch.autograd.Function):
         grad_input = grad_output.clone()
         
         grad_input[input <= 0] = 0
-        #grad_input[(input >= 1) * (grad_output < 0)] = 0
         
         return grad_input
     
@@ -142,7 +136,7 @@ class R2Ntab(nn.Module):
 
         return rules 
 
-    def predict(self, X, Y, metric='accuracy'):
+    def predict(self, X):
         X = np.array(X)
         rules = self.extract_rules()
         
@@ -152,16 +146,20 @@ class R2Ntab(nn.Module):
             result = int(len(indices) != 0)
             results.append(result)
             
-        Y_pred = np.array(results)
-
+        return np.array(results)
+    
+    def score(self, Y_pred, Y, metric='accuracy'):
+        
+        assert metric == 'accuracy' or metric == 'auc', 'Invalid metric provided.'
+        
         if metric == 'accuracy':
-            return (Y == Y_pred).mean()
+            return accuracy_score(Y_pred, Y)
         elif metric == 'auc':
-            return roc_auc_score(Y, Y_pred)
+            return roc_auc_score(Y_pred, Y)
 
-    def fit(self, train_set, test_set, device='cpu', lr_rules=1e-2, lr_cancel=5e-3, and_lam=1e-2, or_lam=1e-5, 
-            cancel_lam=1e-4, epochs=2000, num_alter=500, batch_size=400, track_performance=False, dummy_index=None, dynamic=False):
-        def score(out, y):
+    def fit(self, train_set, device='cpu', lr_rules=1e-2, lr_cancel=5e-3, and_lam=1e-2, or_lam=1e-5, 
+            cancel_lam=1e-4, epochs=2000, num_alter=500, batch_size=400, dummy_index=None, dynamic=False):
+        def compute_score(out, y):
             y_labels = (out >= 0).float()
             y_corrs = (y_labels == y.reshape(y_labels.size())).float()
 
@@ -185,15 +183,16 @@ class R2Ntab(nn.Module):
         criterion = nn.BCEWithLogitsLoss().to(device)
 
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, drop_last=True, shuffle=True)
+        
+        self.to(device)
+        self.train()
 
-        dummies, accuracies, epoch_accus = [], [], []
+        dummies, epoch_accus = [], []
 
-        old_accu = score(self(test_set[:][0]), test_set[:][1]).mean().item()
+        old_accu = compute_score(self(train_set[:][0]), train_set[:][1]).mean().item()
         old_cancelled = len(torch.where(self.cancelout_layer.weight < 0)[0])
         stop_cancel = False
-        for epoch in tqdm(range(epochs), ncols=60):
-            self.to(device)
-            self.train()
+        for epoch in tqdm(range(epochs), ncols=50):
 
             batch_losses = []
             batch_corres = []
@@ -238,7 +237,7 @@ class R2Ntab(nn.Module):
                 if not stop_cancel:
                     optimizer_cancel.step()
 
-                corr = score(out, y_batch).sum()
+                corr = compute_score(out, y_batch).sum()
 
                 batch_losses.append(loss.item())
                 batch_corres.append(corr.item())
@@ -255,20 +254,11 @@ class R2Ntab(nn.Module):
     
                 dummies.append(count_dummies)
 
-            self.to('cpu')
-            self.eval()
-            with torch.no_grad():
-                test_accu = score(self(test_set[:][0]), test_set[:][1]).mean().item()
-                accuracies.append(test_accu)
-
         self.reweight_layer()
 
         indices = torch.where(self.cancelout_layer.weight < 0)[0]
         for index in indices:
             assert torch.all(self.and_layer.weight[:, index] == 0), 'Features not properly cancelled'
-
-        if track_performance:
-            return accuracies, dummies
 
         if dummy_index is not None:
             return dummies
