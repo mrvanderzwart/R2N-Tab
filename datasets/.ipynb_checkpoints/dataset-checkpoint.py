@@ -82,6 +82,20 @@ def predefined_dataset(name, binary_y=False):
         categorical_cols = None
         numerical_cols = None
         
+    elif name == 'chess':
+        table = pd.read_csv(dir_path + '/chess/chess.csv', header=0, na_values='?', skipinitialspace=True).dropna()
+        table_X = table.iloc[:, :-1].copy()
+        table_Y = table.iloc[:, -1].copy()
+        categorical_cols = None
+        numerical_cols = None
+        
+    elif name == 'backnote':
+        table = pd.read_csv(dir_path + '/backnote/backnote.csv', header=0, na_values='?', skipinitialspace=True).dropna()
+        table_X = table.iloc[:, :-1].copy()
+        table_Y = table.iloc[:, -1].copy()
+        categorical_cols = None
+        numerical_cols = None
+        
     else:
         raise NameError(f'The input dataset is not found: {name}.')
 
