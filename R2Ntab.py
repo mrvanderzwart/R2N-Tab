@@ -1,19 +1,12 @@
-import os
-import math
-import itertools
-import pickle
 import numpy as np
-import pandas as pd
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torchvision
-from tqdm import tqdm
 
+from tqdm import tqdm
 from sparse_linear import sparse_linear
-from torch.utils.tensorboard import SummaryWriter
 from DRNet import RuleFunction, LabelFunction, Binarization as RuleBinarization
 from sklearn.metrics import accuracy_score, roc_auc_score
 
