@@ -19,6 +19,8 @@ class CancelOut(nn.Module):
         self.relu = nn.ReLU()
         
     def forward(self, x):
+        x.to('cuda')
+        self.weight.to('cuda')
         result = x * self.relu(self.weight.float())
         
         return result
