@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import copy
 
 from tqdm import tqdm
 from sparse_linear import sparse_linear
@@ -19,8 +20,6 @@ class CancelOut(nn.Module):
         self.relu = nn.ReLU()
         
     def forward(self, x):
-        x.to('cuda')
-        self.weight.to('cuda')
         result = x * self.relu(self.weight.float())
         
         return result
@@ -144,7 +143,7 @@ class R2Ntab(nn.Module):
             
         return np.array(results)
     
-    def score(self, Y_pred, Y, metric='accuracy'):
+    def score(self, Y_pred, Y, metric='auc'):
         
         assert metric == 'accuracy' or metric == 'auc', 'Invalid metric provided.'
         
@@ -152,6 +151,22 @@ class R2Ntab(nn.Module):
             return accuracy_score(Y_pred, Y)
         elif metric == 'auc':
             return roc_auc_score(Y_pred, Y)
+        
+    def check_cancel_potential(self, epoch_accus, old_cancelled, old_accu):
+        new_accu = sum(epoch_accus) / len(epoch_accus)
+        n_old_cancelled = len(torch.where(old_cancelled.weight < 0)[0])
+        n_new_cancelled = len(torch.where(self.cancelout_layer.weight < 0)[0])
+
+        if old_accu > new_accu and n_new_cancelled > n_old_cancelled:
+            if old_accu - new_accu >= 0.01:
+                self.cancelout_layer = old_cancelled
+
+            return False, old_accu, old_cancelled
+
+        old_accu = new_accu
+        old_cancelled = copy.deepcopy(self.cancelout_layer)
+        
+        return True, old_accu, old_cancelled
 
     def fit(self, train_set, device='cpu', lr_rules=1e-2, lr_cancel=5e-3, and_lam=1e-2, or_lam=1e-5, 
             cancel_lam=1e-4, epochs=2000, num_alter=500, batch_size=400, dummy_index=None, dynamic=False):
@@ -186,23 +201,14 @@ class R2Ntab(nn.Module):
         dummies, epoch_accus = [], []
 
         old_accu = compute_score(self(train_set[:][0]), train_set[:][1]).mean().item()
-        old_cancelled = len(torch.where(self.cancelout_layer.weight < 0)[0])
-        stop_cancel = False
-        
+        old_cancelled = copy.deepcopy(self.cancelout_layer)
+        perform_cancel = True
         
         for epoch in tqdm(range(epochs), ncols=50):
-
-            batch_losses = []
             batch_corres = []
 
-            if epoch%50 == 0 and epoch > 0 and not stop_cancel:
-                new_accu = sum(epoch_accus) / len(epoch_accus)
-                new_cancelled = len(torch.where(self.cancelout_layer.weight < 0)[0])
-                if old_accu > new_accu and new_cancelled > old_cancelled:
-                    stop_cancel = True
-
-                old_accu = new_accu
-                old_cancelled = new_cancelled
+            if epoch%50 == 0 and epoch > 0 and perform_cancel:
+                perform_cancel, old_accu, old_cancelled = self.check_cancel_potential(epoch_accus, old_cancelled, old_accu)
                 epoch_accus = []
 
             if epoch%1000 == 0 and epoch > 0 and dynamic:
@@ -232,17 +238,14 @@ class R2Ntab(nn.Module):
                 loss.backward()
 
                 optimizers[phase].step()
-                if not stop_cancel:
+                if perform_cancel:
                     optimizer_cancel.step()
 
                 corr = compute_score(out, y_batch).sum()
 
-                batch_losses.append(loss.item())
                 batch_corres.append(corr.item())
 
-            epoch_loss = torch.Tensor(batch_losses).mean().item()
             epoch_accu = torch.Tensor(batch_corres).sum().item() / len(train_set)
-
             epoch_accus.append(epoch_accu)
 
             if dummy_index is not None:
@@ -253,10 +256,6 @@ class R2Ntab(nn.Module):
                 dummies.append(count_dummies)
 
         self.reweight_layer()
-
-        indices = torch.where(self.cancelout_layer.weight < 0)[0]
-        for index in indices:
-            assert torch.all(self.and_layer.weight[:, index] == 0), 'Features not properly cancelled'
 
         if dummy_index is not None:
             return dummies
