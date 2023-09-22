@@ -10,6 +10,7 @@ from sparse_linear import sparse_linear
 from DRNet import RuleFunction, LabelFunction, Binarization as RuleBinarization
 from sklearn.metrics import accuracy_score, roc_auc_score
 
+
 class CancelOut(nn.Module):
 
     def __init__(self, input_size, *kargs, **kwargs):
@@ -185,6 +186,8 @@ class R2Ntab(nn.Module):
         old_accu = compute_score(self(train_set[:][0]), train_set[:][1]).mean().item()
         old_cancelled = len(torch.where(self.cancelout_layer.weight < 0)[0])
         stop_cancel = False
+        
+        
         for epoch in tqdm(range(epochs), ncols=50):
 
             batch_losses = []
@@ -207,7 +210,7 @@ class R2Ntab(nn.Module):
                     break
 
                 old_conds = new_conds
-                
+
                 self.to(device)
                 self.train()
 
@@ -244,7 +247,7 @@ class R2Ntab(nn.Module):
                 count_dummies = 0
                 for idx in range(dummy_index, len(self.cancelout_layer.weight)):
                     count_dummies += (self.cancelout_layer.weight[idx] < 0)
-    
+
                 dummies.append(count_dummies)
 
         self.reweight_layer()
