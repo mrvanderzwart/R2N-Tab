@@ -1,42 +1,45 @@
 import torch
 import json
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
 from datasets.dataset import transform_dataset, kfold_dataset
 from R2Ntab import R2Ntab
 from DRNet import train as train, DRNet
+from sklearn.metrics import roc_auc_score
 
 
 networks = ['drnet', 'r2ntab2', 'r2ntab4', 'r2ntab6']
-def run_network(network, train_set, test_set, X_test, Y_test, X_headers):
+def run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size):
     if network == 'drnet':
         net = DRNet(train_set[:][0].size(1), 50, 1)
-        train(net, train_set, test_set=test_set, device='cpu', epochs=10, batch_size=400)
-        accuracy = (net.predict(np.array(X_test)) == Y_test).mean()
+        train(net, train_set, test_set=test_set, device='cpu', epochs=1000, batch_size=batch_size)
+        auc = roc_auc_score(net.predict(np.array(X_test)), Y_test)
         sparsity = sum(map(len, net.get_rules(X_headers)))
     elif network == 'r2ntab2':
         net = R2Ntab(train_set[:][0].size(1), 50, 1)
-        net.fit(train_set, test_set=test_set, device='cpu', epochs=10, batch_size=400, cancel_lam=1e-2)
-        accuracy = net.predict(X_test, Y_test)
+        net.fit(train_set, device='cpu', epochs=1000, batch_size=batch_size, cancel_lam=1e-2)
+        auc = net.score(net.predict(X_test), Y_test)
         sparsity = sum(map(len, net.extract_rules(X_headers)))
     elif network == 'r2ntab4':
         net = R2Ntab(train_set[:][0].size(1), 50, 1)
-        net.fit(train_set, test_set=test_set, device='cpu', epochs=10, batch_size=400, cancel_lam=1e-4)
-        accuracy = net.predict(X_test, Y_test)
+        net.fit(train_set, device='cpu', epochs=1000, batch_size=batch_size, cancel_lam=1e-4)
+        auc = net.score(net.predict(X_test), Y_test)
         sparsity = sum(map(len, net.extract_rules(X_headers)))
     elif network == 'r2ntab6':
         net = R2Ntab(train_set[:][0].size(1), 50, 1)
-        net.fit(train_set, test_set=test_set, device='cpu', epochs=10, batch_size=400, cancel_lam=1e-6)
-        accuracy = net.predict(X_test, Y_test)
+        net.fit(train_set, device='cpu', epochs=1000, batch_size=batch_size, cancel_lam=1e-6)
+        auc = net.score(net.predict(X_test), Y_test)
         sparsity = sum(map(len, net.extract_rules(X_headers)))
         
-    return accuracy, sparsity
+    return auc, sparsity
 
 
 def run():
     folds = 5
-    for name in ['adult', 'heloc', 'house', 'magic']:
+    dataset_names = [f for f in os.listdir('./datasets') if os.path.isdir(os.path.join('./datasets', f))]
+    for name in dataset_names:
         accuracies = {}
         sparsities = {}
         for network in networks:
@@ -45,6 +48,11 @@ def run():
 
         X, Y, X_headers, Y_headers = transform_dataset(name, method='onehot-compare', negations=False, labels='binary')
         datasets = kfold_dataset(X, Y, k=folds, shuffle=1)
+        
+        if len(X) > 10e3:
+            batch_size = 400
+        else:
+            batch_size = 40
 
         print(f'dataset: {name}')
         for fold in range(folds):
@@ -54,7 +62,7 @@ def run():
             test_set = torch.utils.data.TensorDataset(torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test))
 
             for network in networks:
-                accuracy, sparsity = run_network(network, train_set, test_set, X_test, Y_test, X_headers)
+                accuracy, sparsity = run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size)
                 accuracies[network].append(accuracy)
                 sparsities[network].append(sparsity)
 
@@ -66,7 +74,8 @@ def run():
             
             
 def plot():
-    for name in ['adult', 'heloc', 'house', 'magic']:
+    dataset_names = [f for f in os.listdir('./datasets') if os.path.isdir(os.path.join('./datasets', f))]
+    for name in dataset_names:
 
         print('dataset:', name)
 
@@ -98,7 +107,7 @@ def plot():
             combi = plt.Line2D([0], [0], marker='X', color='w', label='Mean', markerfacecolor='black', markersize=12)
 
             plt.xlabel('# Conditions', fontsize=15)
-            plt.ylabel('Test accuracy', fontsize=15)
+            plt.ylabel('ROC-AUC', fontsize=15)
             plt.ylim([mean_accuracy_r2ntab-0.1, mean_accuracy_drnet+0.04])    
             plt.legend(handles=[l1, l2, combi], loc='lower right', fontsize=12)
             plt.savefig(f'{name}-{rate}.pdf')

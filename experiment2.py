@@ -102,50 +102,56 @@ def transform_dataset_dummies(
 
     return X, Y, X_headers, Y_headers
 
-runs = 10
-rates = [1e-2, 1e-4, 1e-6]
-for name in ["adult", "heloc", "house", "magic"]:
-    accuracies = {}
-    dummies = {}
-    for rate in rates:
-        accuracies[rate] = []
-        dummies[rate] = []
 
-    print("dataset:", name)
-    for run in range(runs):
-        print("  run:", run + 1)
-        X, Y, X_headers, Y_headers = transform_dataset_dummies(
-            name, method="onehot-compare", negations=False, labels="binary"
-        )
-        datasets = kfold_dataset(X, Y, shuffle=1)
-        X_train, X_test, Y_train, Y_test = datasets[0]
-        train_set = torch.utils.data.TensorDataset(
-            torch.Tensor(X_train.to_numpy()), torch.Tensor(Y_train)
-        )
-        test_set = torch.utils.data.TensorDataset(
-            torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test)
-        )
+def run():
+    runs = 10
+    rates = [1e-2, 1e-4, 1e-6]
+    for name in ["adult", "heloc", "house", "magic"]:
+        accuracies = {}
+        dummies = {}
+        for rate in rates:
+            accuracies[rate] = []
+            dummies[rate] = []
+
+        print("dataset:", name)
+        for run in range(runs):
+            print("  run:", run + 1)
+            X, Y, X_headers, Y_headers = transform_dataset_dummies(
+                name, method="onehot-compare", negations=False, labels="binary"
+            )
+            datasets = kfold_dataset(X, Y, shuffle=1)
+            X_train, X_test, Y_train, Y_test = datasets[0]
+            train_set = torch.utils.data.TensorDataset(
+                torch.Tensor(X_train.to_numpy()), torch.Tensor(Y_train)
+            )
+            test_set = torch.utils.data.TensorDataset(
+                torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test)
+            )
+
+            for rate in rates:
+                net = R2Ntab(train_set[:][0].size(1), 50, 1)
+                dummies = net.fit(
+                    train_set,
+                    test_set=test_set,
+                    device="cuda",
+                    epochs=1000,
+                    batch_size=400,
+                    cancel_lam=rate,
+                )
+                accuracy = net.predict(X_test, Y_test)
+                accuracies[rate].append(accuracy)
+                dummies[rate].append(dummies)
 
         for rate in rates:
-            net = R2Ntab(train_set[:][0].size(1), 50, 1)
-            dummies = net.fit(
-                train_set,
-                test_set=test_set,
-                device="cuda",
-                epochs=1000,
-                batch_size=400,
-                cancel_lam=rate,
-            )
-            accuracy = net.predict(X_test, Y_test)
-            accuracies[rate].append(accuracy)
-            dummies[rate].append(dummies)
+            dummies[rate] = np.array(dummies[rate])
+            dummies[rate] = dummies[rate].mean(axis=0)
 
-    for rate in rates:
-        dummies[rate] = np.array(dummies[rate])
-        dummies[rate] = dummies[rate].mean(axis=0)
+        with open(f"exp2-dummies-{name}.json", "w") as file:
+            json.dump(dummies, file)
 
-    with open(f"exp2-dummies-{name}.json", "w") as file:
-        json.dump(dummies, file)
-
-    with open(f"exp2-accuracies-{name}.json", "w") as file:
-        json.dump(accuracies, file)
+        with open(f"exp2-accuracies-{name}.json", "w") as file:
+            json.dump(accuracies, file)
+            
+            
+def plot():
+    pass
