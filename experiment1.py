@@ -1,6 +1,7 @@
 import torch
 import json
 import os
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -11,48 +12,40 @@ from sklearn.metrics import roc_auc_score
 
 
 networks = ['drnet', 'r2ntab2', 'r2ntab4', 'r2ntab6']
-def run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size):
-    if network == 'drnet':
-        net = DRNet(train_set[:][0].size(1), 50, 1)
-        train(net, train_set, test_set=test_set, device='cpu', epochs=1000, batch_size=batch_size)
-        auc = roc_auc_score(net.predict(np.array(X_test)), Y_test)
-        sparsity = sum(map(len, net.get_rules(X_headers)))
-    elif network == 'r2ntab2':
-        net = R2Ntab(train_set[:][0].size(1), 50, 1)
-        net.fit(train_set, device='cpu', epochs=1000, batch_size=batch_size, cancel_lam=1e-2)
-        auc = net.score(net.predict(X_test), Y_test)
-        sparsity = sum(map(len, net.extract_rules(X_headers)))
-    elif network == 'r2ntab4':
-        net = R2Ntab(train_set[:][0].size(1), 50, 1)
-        net.fit(train_set, device='cpu', epochs=1000, batch_size=batch_size, cancel_lam=1e-4)
-        auc = net.score(net.predict(X_test), Y_test)
-        sparsity = sum(map(len, net.extract_rules(X_headers)))
-    elif network == 'r2ntab6':
-        net = R2Ntab(train_set[:][0].size(1), 50, 1)
-        net.fit(train_set, device='cpu', epochs=1000, batch_size=batch_size, cancel_lam=1e-6)
-        auc = net.score(net.predict(X_test), Y_test)
-        sparsity = sum(map(len, net.extract_rules(X_headers)))
+def run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size): 
+    cancel_lam = {'r2ntab2': 1e-2, 'r2ntab4': 1e-4, 'r2ntab6': 1e-6}.get(network, 0)
+
+    start = time.time()
+    
+    net = R2Ntab(train_set[:][0].size(1), 50, 1) if network.startswith('r2ntab') else DRNet(train_set[:][0].size(1), 50, 1)
+    if network.startswith('r2ntab'):
+        net.fit(train_set, device='cpu', epochs=1000, batch_size=batch_size, cancel_lam=cancel_lam, lr_cancel=5e-3)
+    else:
+        train(net, train_set, test_set, device='cpu', epochs=1000, batch_size=batch_size)
+    auc = roc_auc_score(net.predict(np.array(X_test)), Y_test)
+    rules = net.extract_rules(X_headers) if network.startswith('r2ntab') else net.get_rules(X_headers)
+    conditions = sum(map(len, rules))
+
+    end = time.time()
+    runtime = end - start
         
-    return auc, sparsity
+    return auc, len(rules), conditions, runtime
 
 
 def run():
     folds = 5
-    dataset_names = [f for f in os.listdir('./datasets') if os.path.isdir(os.path.join('./datasets', f))]
+    runs = 5
+    dataset_names = ['adult', 'backnote', 'diabetes', 'house', 'magic']
     for name in dataset_names:
-        accuracies = {}
-        sparsities = {}
-        for network in networks:
-            accuracies[network] = []
-            sparsities[network] = []
+        aucs = {network: [] for network in networks}
+        rules = {network: [] for network in networks}
+        conditions = {network: [] for network in networks}
+        runtimes = {network: [] for network in networks}
 
         X, Y, X_headers, Y_headers = transform_dataset(name, method='onehot-compare', negations=False, labels='binary')
         datasets = kfold_dataset(X, Y, k=folds, shuffle=1)
         
-        if len(X) > 10e3:
-            batch_size = 400
-        else:
-            batch_size = 40
+        batch_size = 400 if len(X) > 10e3 else 40
 
         print(f'dataset: {name}')
         for fold in range(folds):
@@ -62,53 +55,87 @@ def run():
             test_set = torch.utils.data.TensorDataset(torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test))
 
             for network in networks:
-                accuracy, sparsity = run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size)
-                accuracies[network].append(accuracy)
-                sparsities[network].append(sparsity)
+                auc_values, n_rules, n_conds, run_times = 0, 0, 0, 0
+                for run in range(runs):
+                    print(f'  run: {run+1}')
+                    auc, n_rule, conds, runtime = run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size)
 
-        with open(f'exp1-accuracies-{name}.json', 'w') as file:
-            json.dump(accuracies, file)
+                    auc_values += auc
+                    n_rules += n_rule
+                    n_conds += conds
+                    run_times += runtime
+                    
+                aucs[network].append(auc_values/runs)
+                rules[network].append(n_rules/runs)
+                conditions[network].append(n_conds/runs)
+                runtimes[network].append(run_times/runs)
 
-        with open(f'exp1-sparsities-{name}.json', 'w') as file:
-            json.dump(sparsities, file)
+        with open(f'exp1-aucs-{name}.json', 'w') as file:
+            json.dump(aucs, file)
+
+        with open(f'exp1-rules-{name}.json', 'w') as file:
+            json.dump(rules, file)
+            
+        with open(f'exp1-conditions-{name}.json', 'w') as file:
+            json.dump(conditions, file)
+
+        with open(f'exp1-runtimes-{name}.json', 'w') as file:
+            json.dump(runtimes, file)
             
             
 def plot():
-    dataset_names = [f for f in os.listdir('./datasets') if os.path.isdir(os.path.join('./datasets', f))]
+    dataset_names = ['adult', 'heloc', 'house', 'magic', 'tictactoe', 'chess', 'diabetes', 'backnote']
     for name in dataset_names:
 
         print('dataset:', name)
 
-        with open(f'exp1-accuracies-{name}.json') as file:
-            accs = json.load(file)
+        with open(f'exp1-aucs-{name}.json') as file:
+            aucs = json.load(file)
 
-        with open(f'exp1-sparsities-{name}.json') as file:
-            spars = json.load(file)
+        with open(f'exp1-rules-{name}.json') as file:
+            rules = json.load(file)
+
+        with open(f'exp1-conditions-{name}.json') as file:
+            conds = json.load(file)
+
+        with open(f'exp1-runtimes-{name}.json') as file:
+            runtimes = json.load(file)
 
         for rate in ['2', '4', '6']:
 
             print('  rate: 1e-', rate)
 
             plt.style.use('seaborn-darkgrid')
-            l1 = plt.scatter(spars['drnet'], accs['drnet'], c='red', label='DR-Net')
-            l2 = plt.scatter(spars[f'r2ntab{rate}'], accs[f'r2ntab{rate}'], c='blue', label=f'R2N-Tab $\lambda$=1e-{rate}')
+            l1 = plt.scatter(conds['drnet'], aucs['drnet'], c='red', label='DR-Net')
+            l2 = plt.scatter(conds[f'r2ntab{rate}'], aucs[f'r2ntab{rate}'], c='blue', label=f'R2N-Tab $\lambda$=1e-{rate}')
 
-            mean_accuracy_drnet = sum(accs['drnet']) / len(accs['drnet'])
-            mean_accuracy_r2ntab = sum(accs[f'r2ntab{rate}']) / len(accs[f'r2ntab{rate}'])
-            mean_sparsity_drnet = sum(spars['drnet']) / len(spars['drnet'])
-            mean_sparsity_r2ntab = sum(spars[f'r2ntab{rate}']) / len(spars[f'r2ntab{rate}'])
+            mean_auc_drnet = sum(aucs['drnet']) / len(aucs['drnet'])
+            mean_auc_r2ntab = sum(aucs[f'r2ntab{rate}']) / len(aucs[f'r2ntab{rate}'])
+            mean_sparsity_drnet = sum(conds['drnet']) / len(conds['drnet'])
+            mean_sparsity_r2ntab = sum(conds[f'r2ntab{rate}']) / len(conds[f'r2ntab{rate}'])
 
-            print('    mean accuracy:', mean_accuracy_r2ntab, 'std:', np.std(accs[f'r2ntab{rate}']))
-            print('    mean sparsity:', mean_sparsity_r2ntab, 'std:', np.std(spars[f'r2ntab{rate}']))
+            print(f'    mean AUC R2N-Tab {rate}:', mean_auc_r2ntab, 'std:', np.std(aucs[f'r2ntab{rate}']))
+            print(f'    mean rules R2N-Tab {rate}:', sum(rules[f'r2ntab{rate}']) / len(rules[f'r2ntab{rate}']), 'std:', np.std(rules[f'r2ntab{rate}']))
+            print(f'    mean conditions R2N-Tab {rate}:', mean_sparsity_r2ntab, 'std:', np.std(conds[f'r2ntab{rate}']))
+            print(f'    mean runtimes R2N-Tab {rate}:', sum(runtimes[f'r2ntab{rate}']) / len(runtimes[f'r2ntab{rate}']), 'std:', np.std(runtimes[f'r2ntab{rate}']))
+            if rate == '2':
+                print('    mean AUC DR-Net:', mean_auc_drnet, 'std:', np.std(aucs['drnet']))
+                print('    mean rules DR-Net:', sum(rules['drnet']) / len(rules['drnet']), 'std:', np.std(rules['drnet']))
+                print('    mean conditions DR-Net:', mean_sparsity_drnet, 'std:', np.std(conds['drnet']))
+                print('    mean runtimes DR-Net:', sum(runtimes['drnet']) / len(runtimes['drnet']), 'std:', np.std(runtimes['drnet']))
 
-            plt.scatter(mean_sparsity_drnet, mean_accuracy_drnet, marker='X', edgecolors='black', s=120, c='red')
-            plt.scatter(mean_sparsity_r2ntab, mean_accuracy_r2ntab, marker='X', edgecolors='black', s=120, c='blue')
+            plt.scatter(mean_sparsity_drnet, mean_auc_drnet, marker='X', edgecolors='black', s=120, c='red')
+            plt.scatter(mean_sparsity_r2ntab, mean_auc_r2ntab, marker='X', edgecolors='black', s=120, c='blue')
 
             combi = plt.Line2D([0], [0], marker='X', color='w', label='Mean', markerfacecolor='black', markersize=12)
 
             plt.xlabel('# Conditions', fontsize=15)
             plt.ylabel('ROC-AUC', fontsize=15)
-            plt.ylim([mean_accuracy_r2ntab-0.1, mean_accuracy_drnet+0.04])    
-            plt.legend(handles=[l1, l2, combi], loc='lower right', fontsize=12)
+            plt.ylim([mean_auc_r2ntab-0.1, min(1.0, mean_auc_drnet+0.04)])    
+            plt.legend(handles=[l1, l2, combi], loc='lower right', fontsize=12, frameon=True)
             plt.savefig(f'{name}-{rate}.pdf')
-            plt.clf()
+            plt.show()
+
+
+if __name__ == "__main__":
+    run()

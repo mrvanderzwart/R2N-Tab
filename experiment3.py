@@ -1,5 +1,6 @@
 import torch
 import json
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -15,47 +16,54 @@ def fix_cancel_layer(net, features):
             net.cancelout_layer.weight[feature] = -1
 
 
-def run_selector(feature_selector, train_set, test_set, X_train, Y_train, X_test, Y_test, X_headers):
-    if feature_selector == 'r2ntab':
-        model = R2Ntab(train_set[:][0].size(1), 50, 1)
-        model.fit(train_set, test_set, device='cpu', epochs=10, batch_size=400)
-        accuracy = model.predict(X_test, Y_test)
-        sparsity = sum(map(len, model.extract_rules(X_headers)))
-    elif feature_selector == 'gb':
+def run_selector(feature_selector, train_set, test_set, X_train, Y_train, X_test, Y_test, X_headers, batch_size, lr_cancel):
+    start = time.time()
+    model = R2Ntab(train_set[:][0].size(1), 50, 1)
+
+    if feature_selector == 'gb':
         gb = GradientBoostingClassifier(n_estimators=50, random_state=0)
         gb.fit(X_train, Y_train)
         cancelled_features = np.where(gb.feature_importances_ == 0)[0]
-        model = R2Ntab(train_set[:][0].size(1), 50, 1)
         fix_cancel_layer(model, cancelled_features)
-        model.fit(train_set, test_set, device='cpu', epochs=10, batch_size=400)
-        accuracy = model.predict(X_test, Y_test)
-        sparsity = sum(map(len, model.extract_rules(X_headers)))
+        lr_cancel = 0
     elif feature_selector == 'pca':
         pca = PCA(n_components=1)
         pca.fit(X_train)
         component = pca.components_[0]
         cancelled_features = list(torch.where(torch.tensor(component) < 0)[0].numpy())
-        model = R2Ntab(train_set[:][0].size(1), 50, 1)
         fix_cancel_layer(model, cancelled_features)
-        model.fit(train_set, test_set, device='cpu', epochs=10, batch_size=400)
-        accuracy = model.predict(X_test, Y_test)
-        sparsity = sum(map(len, model.extract_rules(X_headers)))
-        
-    return accuracy, sparsity
+        lr_cancel = 0
+
+    model.fit(train_set, test_set, device='cpu', epochs=10, batch_size=400, lr_cancel=lr_cancel)
+    auc = model.score(model.predict(X_test), Y_test)
+    rules = model.extract_rules(X_headers)
+    conditions = sum(map(len, rules))
+
+    end = time.time()
+    runtime = end-start
+
+    return auc, len(rules), conditions, runtime
 
 
 def run():
     folds = 5
+    runs = 5
     feature_selectors = ['r2ntab', 'gb', 'pca']
     for name in ['adult', 'heloc', 'house', 'magic']:
-        accuracies = {}
-        sparsities = {}
-        for fs in feature_selectors:
-            accuracies[fs] = []
-            sparsities[fs] = []
+        aucs = {fs: [] for fs in feature_selectors}
+        rules = {fs: [] for fs in feature_selectors}
+        conditions = {fs: [] for fs in feature_selectors}
+        runtimes = {fs: [] for fs in feature_selectors}
 
         X, Y, X_headers, Y_headers = transform_dataset(name, method='onehot-compare', negations=False, labels='binary')
         datasets = kfold_dataset(X, Y, shuffle=1)
+
+        batch_size = 400 if len(X) > 10e3 else 40
+
+        if name in ['chess', 'heloc']:
+            lr_cancel = 1e-2
+        else:
+            lr_cancel = 5e-3
 
         print(f'dataset: {name}')
         for fold in range(folds):
@@ -65,16 +73,32 @@ def run():
             test_set = torch.utils.data.TensorDataset(torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test))
 
             for fs in feature_selectors:
-                acc, sparsity = run_selector(fs, train_set, test_set, X_train, Y_train, X_test, Y_test, X_headers)
+                auc_values, rules_values, conds_values, runtime_values = 0, 0, 0, 0
+                for run in range(runs):
+                    print(f'    run: {run+1}')
+                    new_auc, new_rules, new_conds, new_runtime = run_selector(fs, train_set, test_set, X_train, Y_train, X_test, Y_test, X_headers, batch_size, lr_cancel)
 
-                accuracies[fs].append(acc)
-                sparsities[fs].append(sparsity)
+                    auc_values += new_auc
+                    rules_values += new_rules
+                    conds_values += new_conds
+                    runtime_values += new_runtime
 
-        with open(f'exp3-accuracies-{name}.json', 'w') as file:
-            json.dump(accuracies, file)
+                aucs[fs].append(auc_values/runs)
+                rules[fs].append(rules_values/runs)
+                conditions[fs].append(conds_values/runs)
+                runtimes[fs].append(runtime_values/runs)
 
-        with open(f'exp3-sparsities-{name}.json', 'w') as file:
-            json.dump(sparsities, file)
+        with open(f'exp3-auc-{name}.json', 'w') as file:
+            json.dump(aucs, file)
+
+        with open(f'exp3-rules-{name}.json', 'w') as file:
+            json.dump(rules, file)
+
+        with open(f'exp3-conditions-{name}.json', 'w') as file:
+            json.dump(conditions, file)
+
+        with open(f'exp3-runtimes-{name}.json', 'w') as file:
+            json.dump(runtimes, file)
             
             
 def plot():
