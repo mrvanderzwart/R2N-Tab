@@ -25,9 +25,9 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
     RX_test = RX_test.sort_index(axis=1)
 
     if rule_learner == 'r2ntab':
-        max_conditions = [60, 80, 100, 200, 300]
+        max_conditions = [5, 10, 20, 100, 200, 300]
         model = R2Ntab(train_set[:][0].size(1), 50, 1)
-        aucs, n_rules, conditions = model.fit(train_set, test_set, batch_size=batch_size, lr_cancel=lr_cancel, cancel_lam=cancel_lam, max_conditions=max_conditions)
+        aucs, n_rules, conditions = model.fit(train_set, test_set, epochs=20000, batch_size=batch_size, lr_cancel=lr_cancel, cancel_lam=cancel_lam, max_conditions=max_conditions)
     elif rule_learner == 'ripper':
         for max_conditions in [50, 75, 100, 200, 300]:
             model = rule.RIPPER(max_total_conds=max_conditions)
@@ -62,9 +62,9 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
     return aucs, n_rules, conditions
 
 def run():
-    rule_learners = ['ripper', 'cart', 'c4.5', 'classy', 'r2ntab']
+    rule_learners = ['r2ntab']
     folds = 5
-    dataset_names = ['chess', 'backnote', 'tictactoe', 'diabetes']
+    dataset_names = ['heloc']
     cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
     for name in dataset_names:
         print(f'dataset: {name}')
@@ -118,21 +118,44 @@ def run():
             json.dump(runtimes, file)
 
 def plot():
-    for name in ['heloc']:
+    colors = ['darkblue', 'darkmagenta', 'red', 'orange', 'black']
+    plt.style.use('seaborn-darkgrid')
+    for name in ['house']:
     
         with open(f'exp4-aucs-{name}.json') as file:
             aucs = json.load(file)
             
-        with open(f'exp4-sparsities-{name}.json') as file:
+        with open(f'exp4-conditions-{name}.json') as file:
             sparsities = json.load(file)
             
-        for fs in ['ripper', 'cart', 'c4.5', 'classy', 'r2ntab']:
-            plt.plot(sparsities[f'{fs}'], aucs[f'{fs}'])
+        if name == 'house':
+            auc1 = aucs['ripper'][1]
+            con1 = sparsities['ripper'][1]
+            auc2 = aucs['ripper'][2]
+            con2 = sparsities['ripper'][2]
+            aucs['ripper'] = [aucs['ripper'][0], aucs['ripper'][3], aucs['ripper'][4]]
+            sparsities['ripper'] = [sparsities['ripper'][0], sparsities['ripper'][3], sparsities['ripper'][4]]
+            
+        for i, fs in enumerate(['ripper', 'cart', 'c4.5', 'classy', 'r2ntab']):
+            plt.plot(sparsities[f'{fs}'], aucs[f'{fs}'], '-x', color=colors[i], markersize=7)
+            
+        if name == 'house':
+            plt.scatter(con1, auc1, color='darkblue', marker='x', s=45)
+            plt.scatter(con2, auc2, color='darkblue', marker='x', s=45)
 
-        plt.legend(['ripper', 'cart', 'c4.5', 'classy', 'r2ntab'])
-        plt.xlim([0,120])
+        leg = plt.legend(['ripper', 'cart', 'c4.5', 'classy', 'r2ntab'])
+        for i in range(5):
+            leg.legendHandles[i].set_marker('')
+            
+        if name == 'house':
+            plt.xlim([0,300])
+            plt.yticks(np.arange(0.70, 0.85, 0.025))
+        elif name == 'adult':
+            plt.xlim([0,200])
+        plt.ylabel("AUC")
+        plt.xlabel("model complexity")
         plt.show()
 
 
 if __name__ == "__main__":
-    run()
+    plot()
