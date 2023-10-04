@@ -14,11 +14,11 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 
 class CancelOut(nn.Module):
 
-    def __init__(self, input_size, *kargs, **kwargs):
+    def __init__(self, input_size):
         super(CancelOut, self).__init__()
         self.weight = nn.Parameter(torch.zeros(input_size, requires_grad = True) + 4)
         self.relu = nn.ReLU()
-        
+
     def forward(self, x):
         result = x * self.relu(self.weight.float())
         
@@ -168,8 +168,8 @@ class R2Ntab(nn.Module):
         
         return True, old_accu, old_cancelled
 
-    def fit(self, train_set, device='cpu', lr_rules=1e-2, lr_cancel=5e-3, and_lam=1e-2, or_lam=1e-5, 
-            cancel_lam=1e-4, epochs=2000, num_alter=500, batch_size=400, dummy_index=None, dynamic=False):
+    def fit(self, train_set, test_set=None, device='cpu', lr_rules=1e-2, lr_cancel=5e-3, and_lam=1e-2, or_lam=1e-5, cancel_lam=1e-4, epochs=2000, num_alter=500, batch_size=400, dummy_index=None, fs=False, 
+            max_conditions=None):
         def compute_score(out, y):
             y_labels = (out >= 0).float()
             y_corrs = (y_labels == y.reshape(y_labels.size())).float()
@@ -178,18 +178,15 @@ class R2Ntab(nn.Module):
 
         assert batch_size <= len(train_set), f"Batch size ({batch_size}) should be equal or smaller than the number of training examples ({len(train_set)})."
 
-        if dynamic:
-            epochs=100000
+        if max_conditions is not None:
+            epochs=20000
             headers = ['a' + str(i) for i in range(1, self.n_features)]
-            rules = self.extract_rules(headers)
-            old_conds = sum(map(len, rules))
 
         reg_lams = [and_lam, or_lam]
 
         optimizers = [optim.Adam(self.and_layer.parameters(), lr=lr_rules),
-                      optim.Adam(self.or_layer.parameters(), lr=lr_rules)]
-
-        optimizer_cancel = optim.Adam(self.cancelout_layer.parameters(), lr=lr_cancel)
+                      optim.Adam(self.or_layer.parameters(), lr=lr_rules),
+                      optim.Adam(self.cancelout_layer.parameters(), lr=lr_cancel)]
 
         criterion = nn.BCEWithLogitsLoss().to(device)
 
@@ -198,26 +195,41 @@ class R2Ntab(nn.Module):
         self.to(device)
         self.train()
 
-        dummies, epoch_accus = [], []
+        dummies, epoch_accus, point_aucs, point_rules, point_conds = [], [], [], [], []
 
-        old_accu = compute_score(self(train_set[:][0]), train_set[:][1]).mean().item()
+        old_accu = 0
         old_cancelled = copy.deepcopy(self.cancelout_layer)
         perform_cancel = True
         
         for epoch in tqdm(range(epochs), ncols=50):
+            self.to(device)
+            self.train()
             batch_corres = []
 
             if epoch%50 == 0 and epoch > 0 and perform_cancel:
                 perform_cancel, old_accu, old_cancelled = self.check_cancel_potential(epoch_accus, old_cancelled, old_accu)
                 epoch_accus = []
 
-            if epoch%1000 == 0 and epoch > 0 and dynamic:
-                rules = self.extract_rules(headers)
-                new_conds = sum(map(len, rules))
-                if not new_conds < old_conds:
-                    break
+                if perform_cancel == False and fs:
+                    break;
 
-                old_conds = new_conds
+            if epoch%100 == 0 and epoch > 0 and max_conditions is not None:
+                rules = self.extract_rules(headers)
+                n_conds = sum(map(len, rules))
+                if type(max_conditions) == list:
+                    if n_conds < max_conditions[-1]:
+                        max_conditions.pop()
+                        self.to('cpu')
+                        self.eval()
+                        with torch.no_grad():
+                            test_auc = roc_auc_score(self.predict(test_set[:][0]), test_set[:][1])
+                        point_aucs.append(test_auc)
+                        point_rules.append(len(rules))
+                        point_conds.append(n_conds)
+                        if not len(max_conditions):
+                            return point_aucs, point_rules, point_conds
+                elif n_conds < max_conditions:
+                    break
 
                 self.to(device)
                 self.train()
@@ -231,7 +243,6 @@ class R2Ntab(nn.Module):
                 phase = int((epoch / num_alter) % 2)
 
                 optimizers[phase].zero_grad()
-                optimizer_cancel.zero_grad()
 
                 loss = criterion(out, y_batch.reshape(out.size())) + reg_lams[phase] * self.regularization() + cancel_lam * self.cancelout_layer.regularization()
 
@@ -239,7 +250,8 @@ class R2Ntab(nn.Module):
 
                 optimizers[phase].step()
                 if perform_cancel:
-                    optimizer_cancel.step()
+                    optimizers[2].zero_grad()
+                    optimizers[2].step()
 
                 corr = compute_score(out, y_batch).sum()
 
@@ -248,14 +260,6 @@ class R2Ntab(nn.Module):
             epoch_accu = torch.Tensor(batch_corres).sum().item() / len(train_set)
             epoch_accus.append(epoch_accu)
 
-            if dummy_index is not None:
-                count_dummies = 0
-                for idx in range(dummy_index, len(self.cancelout_layer.weight)):
-                    count_dummies += (self.cancelout_layer.weight[idx] < 0)
-
-                dummies.append(count_dummies)
-
         self.reweight_layer()
-
-        if dummy_index is not None:
-            return dummies
+        
+        return point_aucs, point_rules, point_conds

@@ -6,60 +6,65 @@ import matplotlib.pyplot as plt
 
 from datasets.dataset import transform_dataset, kfold_dataset
 from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LinearRegression
 from sklearn.decomposition import PCA
 from R2Ntab import R2Ntab
+from sklearn.metrics import roc_auc_score
 
 
-def fix_cancel_layer(net, features):
-    with torch.no_grad():
-        for feature in features:
-            net.cancelout_layer.weight[feature] = -1
-
-
-def run_selector(feature_selector, train_set, test_set, X_train, Y_train, X_test, Y_test, X_headers, batch_size, lr_cancel):
+def run_selector(feature_selector, train_set, X_train, Y_train, X_test, Y_test, batch_size, lr_cancel, cancel_lam):
     start = time.time()
-    model = R2Ntab(train_set[:][0].size(1), 50, 1)
 
-    if feature_selector == 'gb':
+    if feature_selector == 'r2ntab':
+        net = R2Ntab(train_set[:][0].size(1), 50, 1)
+        net.fit(train_set, batch_size=batch_size, epochs=1000, cancel_lam=cancel_lam, lr_cancel=lr_cancel, fs=True)
+        cancelled_features = list(torch.where(net.cancelout_layer.weight < 0)[0].numpy())
+    elif feature_selector == 'gb':
         gb = GradientBoostingClassifier(n_estimators=50, random_state=0)
         gb.fit(X_train, Y_train)
         cancelled_features = np.where(gb.feature_importances_ == 0)[0]
-        fix_cancel_layer(model, cancelled_features)
-        lr_cancel = 0
     elif feature_selector == 'pca':
-        pca = PCA(n_components=1)
+        pca = PCA(n_components=20)
         pca.fit(X_train)
-        component = pca.components_[0]
+        component = np.mean(pca.components_, axis=0)
         cancelled_features = list(torch.where(torch.tensor(component) < 0)[0].numpy())
-        fix_cancel_layer(model, cancelled_features)
-        lr_cancel = 0
+    elif feature_selector == 'regression':
+        model = LinearRegression()
+        model.fit(X_train, Y_train)
+        cancelled_features = list(torch.where(torch.tensor(model.coef_) < 0)[0].numpy())
 
-    model.fit(train_set, test_set, device='cpu', epochs=10, batch_size=400, lr_cancel=lr_cancel)
-    auc = model.score(model.predict(X_test), Y_test)
-    rules = model.extract_rules(X_headers)
-    conditions = sum(map(len, rules))
+    X_train_filtered = X_train.copy(deep=True)
+    X_test_filtered = X_test.copy(deep=True)
+    for index, ft_index in enumerate(cancelled_features):
+        X_train = X_train.drop(X_train.columns[ft_index-index], axis=1)
+        X_test = X_test.drop(X_test.columns[ft_index-index], axis=1)
+
+    rf = RandomForestClassifier()
+    rf.fit(X_train, Y_train)
+    AUC = roc_auc_score(rf.predict(X_test), Y_test)
 
     end = time.time()
     runtime = end-start
 
-    return auc, len(rules), conditions, runtime
+    return AUC, len(cancelled_features)/train_set[:][0].size(1), runtime
 
 
 def run():
     folds = 5
     runs = 5
-    feature_selectors = ['r2ntab', 'gb', 'pca']
-    for name in ['adult', 'heloc', 'house', 'magic']:
+    feature_selectors = ['r2ntab', 'gb', 'pca', 'regression']
+    cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
+    for name in ['adult', 'heloc', 'house', 'magic', 'chess', 'diabetes', 'tictactoe', 'backnote']:
         aucs = {fs: [] for fs in feature_selectors}
-        rules = {fs: [] for fs in feature_selectors}
-        conditions = {fs: [] for fs in feature_selectors}
+        sparsity = {fs: [] for fs in feature_selectors}
         runtimes = {fs: [] for fs in feature_selectors}
 
         X, Y, X_headers, Y_headers = transform_dataset(name, method='onehot-compare', negations=False, labels='binary')
         datasets = kfold_dataset(X, Y, shuffle=1)
 
         batch_size = 400 if len(X) > 10e3 else 40
-
+        
         if name in ['chess', 'heloc']:
             lr_cancel = 1e-2
         else:
@@ -70,68 +75,54 @@ def run():
             print(f'  fold: {fold+1}') 
             X_train, X_test, Y_train, Y_test = datasets[fold]
             train_set = torch.utils.data.TensorDataset(torch.Tensor(X_train.to_numpy()), torch.Tensor(Y_train))
-            test_set = torch.utils.data.TensorDataset(torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test))
-
+            
             for fs in feature_selectors:
-                auc_values, rules_values, conds_values, runtime_values = 0, 0, 0, 0
+                auc_values, sparsity_values, runtime_values = 0, 0, 0
                 for run in range(runs):
                     print(f'    run: {run+1}')
-                    new_auc, new_rules, new_conds, new_runtime = run_selector(fs, train_set, test_set, X_train, Y_train, X_test, Y_test, X_headers, batch_size, lr_cancel)
+                    new_auc, new_sparsity, new_runtime = run_selector(fs, train_set, X_train, Y_train, X_test, Y_test, batch_size, lr_cancel, cancel_lams[name])
 
                     auc_values += new_auc
-                    rules_values += new_rules
-                    conds_values += new_conds
+                    sparsity_values += new_sparsity
                     runtime_values += new_runtime
 
                 aucs[fs].append(auc_values/runs)
-                rules[fs].append(rules_values/runs)
-                conditions[fs].append(conds_values/runs)
+                sparsity[fs].append(sparsity_values/5)
                 runtimes[fs].append(runtime_values/runs)
 
         with open(f'exp3-auc-{name}.json', 'w') as file:
             json.dump(aucs, file)
 
-        with open(f'exp3-rules-{name}.json', 'w') as file:
-            json.dump(rules, file)
-
-        with open(f'exp3-conditions-{name}.json', 'w') as file:
-            json.dump(conditions, file)
+        with open(f'exp3-sparsities-{name}.json', 'w') as file:
+            json.dump(sparsity, file)
 
         with open(f'exp3-runtimes-{name}.json', 'w') as file:
             json.dump(runtimes, file)
             
             
 def plot():
-    for name in ['adult', 'heloc', 'house', 'magic']:
+    cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
+    for name in ['adult', 'heloc', 'house', 'magic', 'tictactoe', 'backnote', 'chess', 'diabetes']:
 
-        with open(f'exp3-accuracies-{name}.json') as file:
-            accuracies = json.load(file)
+        print('dataset:', name)
+
+        with open(f'exp3-auc-{name}.json') as file:
+            aucs = json.load(file)
 
         with open(f'exp3-sparsities-{name}.json') as file:
             sparsities = json.load(file)
+            
+        with open(f'exp3-runtimes-{name}.json') as file:
+            runtimes = json.load(file)
 
-        plt.style.use('seaborn-darkgrid')
-        l1 = plt.scatter(sparsities['gb'], accuracies['gb'], c='red', label='Gradient Boosting + R2N-Tab $\eta$=0')
-        l2 = plt.scatter(sparsities['pca'], accuracies['pca'], c='orange', label='PCA + R2N-Tab $\eta$=0')
-        l3 = plt.scatter(sparsities['r2ntab'], accuracies['r2ntab'], c='blue', label='R2N-Tab $\lambda$=1e-4')
 
-        mean_accuracy_gb = sum(accuracies['gb']) / len(accuracies['gb'])
-        mean_accuracy_pca = sum(accuracies['pca']) / len(accuracies['pca'])
-        mean_accuracy_r2ntab = sum(accuracies['r2ntab']) / len(accuracies['r2ntab'])
-        mean_sparsity_gb = sum(sparsities['gb']) / len(sparsities['gb'])
-        mean_sparsity_pca = sum(sparsities['pca']) / len(sparsities['pca'])
-        mean_sparsity_r2ntab = sum(sparsities['r2ntab']) / len(accuracies['r2ntab'])
+        for fs in ['r2ntab', 'gb', 'pca', 'regression']:
+            print(f'AUC {fs}:', sum(aucs[f'{fs}']) / len(aucs[f'{fs}']))
+            print(f'sparsity {fs}:', sum(sparsities[f'{fs}']) / len(sparsities[f'{fs}']))
+            print(f'runtime {fs}:', sum(runtimes[f'{fs}']) / len(runtimes[f'{fs}']))
+            
+        print('\n')
 
-        plt.scatter(mean_sparsity_gb, mean_accuracy_gb, marker='X', edgecolors='black', s=120, c='red')
-        plt.scatter(mean_sparsity_pca, mean_accuracy_pca, marker='X', edgecolors='black', s=120, c='orange')
-        plt.scatter(mean_sparsity_r2ntab, mean_accuracy_r2ntab, marker='X', edgecolors='black', s=120, c='blue')
 
-        combined_legend = plt.Line2D([0], [0], marker='X', color='w', label='Mean', markerfacecolor='black', markersize=12)
-
-        plt.xlabel('# Conditions', fontsize=15)
-        plt.ylabel('Test accuracy', fontsize=15)
-        minimum = min(mean_accuracy_gb, mean_accuracy_pca, mean_accuracy_r2ntab)
-        plt.ylim([minimum-0.1, mean_accuracy_gb+0.04])    
-        plt.legend(handles=[l1, l2, l3, combined_legend], loc='lower right', fontsize=12)
-        plt.savefig(f'exp3-{name}.pdf')
-        plt.clf()
+if __name__ == "__main__":
+    run()
