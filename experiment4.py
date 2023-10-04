@@ -120,7 +120,7 @@ def run():
 def plot():
     colors = ['darkblue', 'darkmagenta', 'red', 'orange', 'black']
     plt.style.use('seaborn-darkgrid')
-    for name in ['house']:
+    for name in ['magic']:
     
         with open(f'exp4-aucs-{name}.json') as file:
             aucs = json.load(file)
@@ -135,6 +135,15 @@ def plot():
             con2 = sparsities['ripper'][2]
             aucs['ripper'] = [aucs['ripper'][0], aucs['ripper'][3], aucs['ripper'][4]]
             sparsities['ripper'] = [sparsities['ripper'][0], sparsities['ripper'][3], sparsities['ripper'][4]]
+        elif name == 'magic':
+            cartauc = aucs['cart'][1]
+            cartcon = sparsities['cart'][1]
+            c45auc = aucs['c4.5'][1]
+            c45con = sparsities['c4.5'][1]
+            aucs['cart'] = [aucs['cart'][0], aucs['cart'][2], aucs['cart'][3], aucs['cart'][4]]
+            sparsities['cart'] = [sparsities['cart'][0], sparsities['cart'][2], sparsities['cart'][3], sparsities['cart'][4]]
+            aucs['c4.5'] = [aucs['c4.5'][0], aucs['c4.5'][2], aucs['c4.5'][3], aucs['c4.5'][4]]
+            sparsities['c4.5'] = [sparsities['c4.5'][0], sparsities['c4.5'][2], sparsities['c4.5'][3], sparsities['c4.5'][4]]
             
         for i, fs in enumerate(['ripper', 'cart', 'c4.5', 'classy', 'r2ntab']):
             plt.plot(sparsities[f'{fs}'], aucs[f'{fs}'], '-x', color=colors[i], markersize=7)
@@ -142,6 +151,9 @@ def plot():
         if name == 'house':
             plt.scatter(con1, auc1, color='darkblue', marker='x', s=45)
             plt.scatter(con2, auc2, color='darkblue', marker='x', s=45)
+        elif name == 'magic':
+            plt.scatter(cartcon, cartauc, color='darkmagenta', marker='x', s=45)
+            plt.scatter(c45con, c45auc, color='red', marker='x', s=45)
 
         leg = plt.legend(['ripper', 'cart', 'c4.5', 'classy', 'r2ntab'])
         for i in range(5):
@@ -152,6 +164,8 @@ def plot():
             plt.yticks(np.arange(0.70, 0.85, 0.025))
         elif name == 'adult':
             plt.xlim([0,200])
+        elif name == 'magic':
+            plt.xlim([0,250])
         plt.ylabel("AUC")
         plt.xlabel("model complexity")
         plt.show()
