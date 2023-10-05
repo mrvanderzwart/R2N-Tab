@@ -185,8 +185,8 @@ class R2Ntab(nn.Module):
         reg_lams = [and_lam, or_lam]
 
         optimizers = [optim.Adam(self.and_layer.parameters(), lr=lr_rules),
-                      optim.Adam(self.or_layer.parameters(), lr=lr_rules),
-                      optim.Adam(self.cancelout_layer.parameters(), lr=lr_cancel)]
+                      optim.Adam(self.or_layer.parameters(), lr=lr_rules)]
+        optimizer_cancel = optim.Adam(self.cancelout_layer.parameters(), lr=lr_cancel)
 
         criterion = nn.BCEWithLogitsLoss().to(device)
 
@@ -243,6 +243,7 @@ class R2Ntab(nn.Module):
                 phase = int((epoch / num_alter) % 2)
 
                 optimizers[phase].zero_grad()
+                optimizer_cancel.zero_grad()
 
                 loss = criterion(out, y_batch.reshape(out.size())) + reg_lams[phase] * self.regularization() + cancel_lam * self.cancelout_layer.regularization()
 
@@ -250,8 +251,7 @@ class R2Ntab(nn.Module):
 
                 optimizers[phase].step()
                 if perform_cancel:
-                    optimizers[2].zero_grad()
-                    optimizers[2].step()
+                    optimizer_cancel.step()
 
                 corr = compute_score(out, y_batch).sum()
 
@@ -261,5 +261,7 @@ class R2Ntab(nn.Module):
             epoch_accus.append(epoch_accu)
 
         self.reweight_layer()
+        
+        assert not torch.all(self.cancelout_layer.weight == 4), "CancelOut Layer not updating."
         
         return point_aucs, point_rules, point_conds

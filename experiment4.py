@@ -16,7 +16,7 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
-def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_set, X_headers, batch_size, lr_cancel, cancel_lam):
+def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_set, X_headers, batch_size, lr_cancel, cancel_lam, conds):
     aucs, n_rules, conditions = [], [], []
     
     RX_train = pd.DataFrame(X_train)
@@ -25,9 +25,8 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
     RX_test = RX_test.sort_index(axis=1)
 
     if rule_learner == 'r2ntab':
-        max_conditions = [5, 10, 20, 100, 200, 300]
-        model = R2Ntab(train_set[:][0].size(1), 50, 1)
-        aucs, n_rules, conditions = model.fit(train_set, test_set, epochs=20000, batch_size=batch_size, lr_cancel=lr_cancel, cancel_lam=cancel_lam, max_conditions=max_conditions)
+        model = R2Ntab(train_set[:][0].size(1), 10, 1)
+        aucs, n_rules, conditions = model.fit(train_set, test_set, batch_size=batch_size, lr_cancel=lr_cancel, cancel_lam=cancel_lam, max_conditions=conds)
     elif rule_learner == 'ripper':
         for max_conditions in [50, 75, 100, 200, 300]:
             model = rule.RIPPER(max_total_conds=max_conditions)
@@ -62,9 +61,10 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
     return aucs, n_rules, conditions
 
 def run():
-    rule_learners = ['r2ntab']
+    rule_learners = ['r2ntab', 'ripper', 'cart', 'c4.5', 'classy']
     folds = 5
-    dataset_names = ['heloc']
+    dataset_names = ['adult', 'house', 'heloc', 'magic']
+    conds = {'house' : [20, 35, 50, 65, 80], 'adult' : [25, 40, 55, 70, 95], 'heloc' : [10, 25, 40, 55, 70], 'magic' : [60, 75, 90, 105, 120]}
     cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
     for name in dataset_names:
         print(f'dataset: {name}')
@@ -91,7 +91,7 @@ def run():
 
             for learner in rule_learners:
                 start = time.time()
-                auc, n_rules, n_conds = run_learner(learner, X_train, X_test, Y_train, Y_test, train_set, test_set, X_headers, batch_size, lr_cancel, cancel_lams[name])
+                auc, n_rules, n_conds = run_learner(learner, X_train, X_test, Y_train, Y_test, train_set, test_set, X_headers, batch_size, lr_cancel, cancel_lams[name], conds[name].copy())
                 end = time.time()
                 runtime = end-start
                 aucs[learner].append(auc)
@@ -118,58 +118,21 @@ def run():
             json.dump(runtimes, file)
 
 def plot():
-    colors = ['darkblue', 'darkmagenta', 'red', 'orange', 'black']
-    plt.style.use('seaborn-darkgrid')
-    for name in ['magic']:
+    for name in ['heloc']:
     
         with open(f'exp4-aucs-{name}.json') as file:
             aucs = json.load(file)
             
-        with open(f'exp4-conditions-{name}.json') as file:
+        with open(f'exp4-sparsities-{name}.json') as file:
             sparsities = json.load(file)
             
-        if name == 'house':
-            auc1 = aucs['ripper'][1]
-            con1 = sparsities['ripper'][1]
-            auc2 = aucs['ripper'][2]
-            con2 = sparsities['ripper'][2]
-            aucs['ripper'] = [aucs['ripper'][0], aucs['ripper'][3], aucs['ripper'][4]]
-            sparsities['ripper'] = [sparsities['ripper'][0], sparsities['ripper'][3], sparsities['ripper'][4]]
-        elif name == 'magic':
-            cartauc = aucs['cart'][1]
-            cartcon = sparsities['cart'][1]
-            c45auc = aucs['c4.5'][1]
-            c45con = sparsities['c4.5'][1]
-            aucs['cart'] = [aucs['cart'][0], aucs['cart'][2], aucs['cart'][3], aucs['cart'][4]]
-            sparsities['cart'] = [sparsities['cart'][0], sparsities['cart'][2], sparsities['cart'][3], sparsities['cart'][4]]
-            aucs['c4.5'] = [aucs['c4.5'][0], aucs['c4.5'][2], aucs['c4.5'][3], aucs['c4.5'][4]]
-            sparsities['c4.5'] = [sparsities['c4.5'][0], sparsities['c4.5'][2], sparsities['c4.5'][3], sparsities['c4.5'][4]]
-            
-        for i, fs in enumerate(['ripper', 'cart', 'c4.5', 'classy', 'r2ntab']):
-            plt.plot(sparsities[f'{fs}'], aucs[f'{fs}'], '-x', color=colors[i], markersize=7)
-            
-        if name == 'house':
-            plt.scatter(con1, auc1, color='darkblue', marker='x', s=45)
-            plt.scatter(con2, auc2, color='darkblue', marker='x', s=45)
-        elif name == 'magic':
-            plt.scatter(cartcon, cartauc, color='darkmagenta', marker='x', s=45)
-            plt.scatter(c45con, c45auc, color='red', marker='x', s=45)
+        for fs in ['ripper', 'cart', 'c4.5', 'classy', 'r2ntab']:
+            plt.plot(sparsities[f'{fs}'], aucs[f'{fs}'])
 
-        leg = plt.legend(['ripper', 'cart', 'c4.5', 'classy', 'r2ntab'])
-        for i in range(5):
-            leg.legendHandles[i].set_marker('')
-            
-        if name == 'house':
-            plt.xlim([0,300])
-            plt.yticks(np.arange(0.70, 0.85, 0.025))
-        elif name == 'adult':
-            plt.xlim([0,200])
-        elif name == 'magic':
-            plt.xlim([0,250])
-        plt.ylabel("AUC")
-        plt.xlabel("model complexity")
+        plt.legend(['ripper', 'cart', 'c4.5', 'classy', 'r2ntab'])
+        plt.xlim([0,120])
         plt.show()
 
 
 if __name__ == "__main__":
-    plot()
+    run()
