@@ -118,21 +118,43 @@ def run():
             json.dump(runtimes, file)
 
 def plot():
-    for name in ['heloc']:
+    colors = ['darkslategrey', 'mediumblue', 'orange', 'green', 'purple']
+    plt.style.use('seaborn-darkgrid')
+    for name in ['adult', 'house']:
     
-        with open(f'exp4-aucs-{name}.json') as file:
+        with open(f'{name}_graph_auc.json') as file:
             aucs = json.load(file)
             
-        with open(f'exp4-sparsities-{name}.json') as file:
-            sparsities = json.load(file)
+        with open(f'{name}_graph_conds.json') as file:
+            conds = json.load(file)
             
-        for fs in ['ripper', 'cart', 'c4.5', 'classy', 'r2ntab']:
-            plt.plot(sparsities[f'{fs}'], aucs[f'{fs}'])
+        if name == 'house':
+            plt.scatter(conds['ripper'][1], aucs['ripper'][1], marker='x', c='mediumblue', label='_nolegend_')
+            plt.scatter(conds['ripper'][2], aucs['ripper'][2], marker='x', c='mediumblue', label='_nolegend_')
+            conds['ripper'] = [conds['ripper'][0], conds['ripper'][3], conds['ripper'][4]]
+            aucs['ripper'] = [aucs['ripper'][0], aucs['ripper'][3], aucs['ripper'][4]]
+            
+        if name == 'adult':
+            plt.scatter(conds['r2ntab'][3], aucs['r2ntab'][3], marker='x', c='darkslategrey', label='_nolegend_')
+            conds['r2ntab'] = [conds['r2ntab'][0], conds['r2ntab'][1], conds['r2ntab'][2], conds['r2ntab'][4]]
+            aucs['r2ntab'] = [aucs['r2ntab'][0], aucs['r2ntab'][1], aucs['r2ntab'][2], aucs['r2ntab'][4]]
+            
+        for i, fs in enumerate(['r2ntab', 'ripper', 'cart', 'c4.5', 'classy']):
+            plt.plot(conds[f'{fs}'], aucs[f'{fs}'], '-x', color=colors[i])
 
-        plt.legend(['ripper', 'cart', 'c4.5', 'classy', 'r2ntab'])
-        plt.xlim([0,120])
+        l = plt.legend(['R2N-Tab', 'RIPPER', 'CART', 'C4.5', 'Classy'], fontsize=12, frameon=True)
+        for i in l.legendHandles:
+            i.set_marker('')
+            
+        if name == 'house':
+            plt.xlim([0,350])
+        elif name == 'adult':
+            plt.xlim([0,200])
+        plt.xlabel('model complexity')
+        plt.ylabel('AUC')
+        plt.savefig(f'exp4-graph-{name}.pdf')
         plt.show()
 
 
 if __name__ == "__main__":
-    run()
+    plot()
