@@ -1,0 +1,11 @@
+start: 100  bins
+filename:  ./res/backnote_fold5.csv
+all_files: ['anuran.csv', 'avila.csv', 'backnote.csv', 'car.csv', 'chess.csv', 'contracept.csv', 'diabetes.csv', 'ionosphere.csv', 'iris.csv', 'magic.csv', 'tic-tac-toe.csv', 'waveform.csv', 'wine.csv']
+start:  backnote at  ./datasets/backnote.csv ===================
+fold_number:  5
+time spent on this fold:  55.598283529281616
+ROC_AUC:  0.9884598792062123
+       auc  num rules  num rules per class  ...  ncol      data   alg
+0  0.98846        9.0                  4.5  ...     4  backnote  TURS
+
+[1 rows x 12 columns]

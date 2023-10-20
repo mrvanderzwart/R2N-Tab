@@ -1,0 +1,2 @@
+auc,num rules,num rules per class,avg rule length,train overlap,time,max_num_bin_numeric,random_state,nsample,ncol,data,alg
+0.873,165.000,82.500,7.709,0.279,791.714,100,1,957,9,tic-tac-toe,TURS

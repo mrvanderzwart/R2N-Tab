@@ -1,0 +1,11 @@
+start: 100  bins
+filename:  ./res/adult_fold3.csv
+all_files: ['anuran.csv', 'avila.csv', 'backnote.csv', 'car.csv', 'chess.csv', 'contracept.csv', 'diabetes.csv', 'ionosphere.csv', 'iris.csv', 'magic.csv', 'tic-tac-toe.csv', 'waveform.csv', 'wine.csv', 'adult.data']
+start:  adult at  ./datasets/adult.data ===================
+fold_number:  3
+time spent on this fold:  25432.606378793716
+ROC_AUC:  0.8970298981242982
+       auc  num rules  num rules per class  ...  ncol   data   alg
+0  0.89703       93.0                 46.5  ...    14  adult  TURS
+
+[1 rows x 12 columns]

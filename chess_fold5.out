@@ -1,0 +1,11 @@
+start: 100  bins
+filename:  ./res/chess_fold5.csv
+all_files: ['anuran.csv', 'avila.csv', 'backnote.csv', 'car.csv', 'chess.csv', 'contracept.csv', 'diabetes.csv', 'ionosphere.csv', 'iris.csv', 'magic.csv', 'tic-tac-toe.csv', 'waveform.csv', 'wine.csv']
+start:  chess at  ./datasets/chess.csv ===================
+fold_number:  5
+time spent on this fold:  2220.60608792305
+ROC_AUC:  0.9976517553129036
+        auc  num rules  num rules per class  ...  ncol   data   alg
+0  0.997652       21.0                 10.5  ...    36  chess  TURS
+
+[1 rows x 12 columns]

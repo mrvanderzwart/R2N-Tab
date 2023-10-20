@@ -1,0 +1,11 @@
+start: 100  bins
+filename:  ./res/magic04_fold1.csv
+all_files: ['anuran.csv', 'avila.csv', 'backnote.csv', 'car.csv', 'chess.csv', 'contracept.csv', 'diabetes.csv', 'ionosphere.csv', 'iris.csv', 'magic.csv', 'tic-tac-toe.csv', 'waveform.csv', 'wine.csv', 'adult.data', 'house_16H.csv', 'magic04.data', 'heloc_dataset_v1.csv']
+start:  magic04 at  ./datasets/magic04.data ===================
+fold_number:  1
+time spent on this fold:  32616.219241142273
+ROC_AUC:  0.8931709110142763
+        auc  num rules  num rules per class  ...  ncol     data   alg
+0  0.893171      150.0                 75.0  ...    10  magic04  TURS
+
+[1 rows x 12 columns]

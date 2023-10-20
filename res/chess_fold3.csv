@@ -1,0 +1,2 @@
+auc,num rules,num rules per class,avg rule length,train overlap,time,max_num_bin_numeric,random_state,nsample,ncol,data,alg
+1.000,54.000,27.000,8.093,0.471,2317.178,100,1,3195,36,chess,TURS

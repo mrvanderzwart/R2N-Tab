@@ -33,9 +33,9 @@ def run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_s
 
 
 def run():
-    folds = 5
-    runs = 5
-    dataset_names = ['adult', 'backnote', 'diabetes', 'house', 'magic']
+    folds = 1
+    runs = 1
+    dataset_names = ['adult']
     for name in dataset_names:
         aucs = {network: [] for network in networks}
         rules = {network: [] for network in networks}
@@ -43,7 +43,7 @@ def run():
         runtimes = {network: [] for network in networks}
 
         X, Y, X_headers, Y_headers = transform_dataset(name, method='onehot-compare', negations=False, labels='binary')
-        datasets = kfold_dataset(X, Y, k=folds, shuffle=1)
+        datasets = kfold_dataset(X, Y, k=5, shuffle=1)
         
         batch_size = 400 if len(X) > 10e3 else 40
 

@@ -1,0 +1,11 @@
+start: 100  bins
+filename:  ./res/tic-tac-toe_fold2.csv
+all_files: ['anuran.csv', 'avila.csv', 'backnote.csv', 'car.csv', 'chess.csv', 'contracept.csv', 'diabetes.csv', 'ionosphere.csv', 'iris.csv', 'magic.csv', 'tic-tac-toe.csv', 'waveform.csv', 'wine.csv']
+start:  tic-tac-toe at  ./datasets/tic-tac-toe.csv ===================
+fold_number:  2
+time spent on this fold:  424.02295756340027
+ROC_AUC:  0.7354497354497355
+       auc  num rules  num rules per class  ...  ncol         data   alg
+0  0.73545       34.0                 17.0  ...     9  tic-tac-toe  TURS
+
+[1 rows x 12 columns]

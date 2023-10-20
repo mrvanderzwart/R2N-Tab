@@ -1,0 +1,11 @@
+start: 100  bins
+filename:  ./res/diabetes_fold2.csv
+all_files: ['anuran.csv', 'avila.csv', 'backnote.csv', 'car.csv', 'chess.csv', 'contracept.csv', 'diabetes.csv', 'ionosphere.csv', 'iris.csv', 'magic.csv', 'tic-tac-toe.csv', 'waveform.csv', 'wine.csv']
+start:  diabetes at  ./datasets/diabetes.csv ===================
+fold_number:  2
+time spent on this fold:  54.97995853424072
+ROC_AUC:  0.7025925925925927
+        auc  num rules  num rules per class  ...  ncol      data   alg
+0  0.702593        9.0                  4.5  ...     8  diabetes  TURS
+
+[1 rows x 12 columns]
