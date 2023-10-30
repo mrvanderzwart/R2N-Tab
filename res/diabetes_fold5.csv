@@ -1,2 +1,0 @@
-auc,num rules,num rules per class,avg rule length,train overlap,time,max_num_bin_numeric,random_state,nsample,ncol,data,alg
-0.795,13.000,6.500,5.615,0.098,80.595,100,1,768,8,diabetes,TURS
