@@ -101,9 +101,8 @@ def run_selector(feature_selector, train_set, X_train, Y_train, X_test, Y_test, 
     return auc, sparsity, runtime
 
 
-def run():
-    folds = 1
-    runs = 1
+def run(fold):
+    runs = 5
     feature_selectors = ['rf1', 'rf2', 'rf3', 'gb', 'lda', 'svm', 'r2ntab']
     cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
     for name in ['adult', 'heloc', 'house', 'magic', 'chess', 'diabetes', 'tictactoe', 'backnote']:
@@ -122,32 +121,31 @@ def run():
             lr_cancel = 5e-3
 
         print(f'dataset: {name}')
-        for fold in range(folds):
-            print(f'  fold: {fold+1}') 
-            X_train, X_test, Y_train, Y_test = datasets[fold]
-            train_set = torch.utils.data.TensorDataset(torch.Tensor(X_train.to_numpy()), torch.Tensor(Y_train))
+        
+        X_train, X_test, Y_train, Y_test = datasets[fold-1]
+        train_set = torch.utils.data.TensorDataset(torch.Tensor(X_train.to_numpy()), torch.Tensor(Y_train))
             
-            for fs in feature_selectors:
-                auc_values, sparsity_values, runtime_values = 0, 0, 0
-                for run in range(runs):
-                    print(f'    run: {run+1}')
-                    new_auc, new_sparsity, new_runtime = run_selector(fs, train_set, X_train, Y_train, X_test, Y_test, batch_size, lr_cancel, cancel_lams[name])
+        for fs in feature_selectors:
+            auc_values, sparsity_values, runtime_values = 0, 0, 0
+            for run in range(runs):
+                print(f'    run: {run+1}')
+                new_auc, new_sparsity, new_runtime = run_selector(fs, train_set, X_train, Y_train, X_test, Y_test, batch_size, lr_cancel, cancel_lams[name])
 
-                    auc_values += new_auc
-                    sparsity_values += new_sparsity
-                    runtime_values += new_runtime
+                auc_values += new_auc
+                sparsity_values += new_sparsity
+                runtime_values += new_runtime
 
-                aucs[fs].append(auc_values/runs)
-                sparsity[fs].append(sparsity_values/5)
-                runtimes[fs].append(runtime_values/runs)
+            aucs[fs].append(auc_values/runs)
+            sparsity[fs].append(sparsity_values/5)
+            runtimes[fs].append(runtime_values/runs)
 
-        with open(f'exp3-auc-{name}.json', 'w') as file:
+        with open(f'exp3-auc-{name}-fold-{fold}.json', 'w') as file:
             json.dump(aucs, file)
 
-        with open(f'exp3-sparsities-{name}.json', 'w') as file:
+        with open(f'exp3-sparsities-{name}-fold-{fold}.json', 'w') as file:
             json.dump(sparsity, file)
 
-        with open(f'exp3-runtimes-{name}.json', 'w') as file:
+        with open(f'exp3-runtimes-{name}-fold-{fold}.json', 'w') as file:
             json.dump(runtimes, file)
             
             
@@ -176,4 +174,5 @@ def plot():
 
 
 if __name__ == "__main__":
-    run()
+    fold = int(sys.argv[1])
+    run(fold)
