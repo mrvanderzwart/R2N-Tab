@@ -6,14 +6,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, '..')
+sys.path.insert(0, '../src')
 
 from datasets.dataset import transform_dataset, kfold_dataset
+
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LinearRegression
-from sklearn.decomposition import PCA
 from R2Ntab import R2Ntab
+from sklearn.svm import SVC
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.metrics import roc_auc_score
+
+
+def transform(X_train, X_test, cancelled_features):
+    for index, ft_index in enumerate(cancelled_features):
+        X_train = X_train.drop(X_train.columns[ft_index-index], axis=1)
+        X_test = X_test.drop(X_test.columns[ft_index-index], axis=1)
+        
+    return X_train, X_test
 
 
 def run_selector(feature_selector, train_set, X_train, Y_train, X_test, Y_test, batch_size, lr_cancel, cancel_lam):
@@ -24,39 +34,49 @@ def run_selector(feature_selector, train_set, X_train, Y_train, X_test, Y_test, 
         net.fit(train_set, batch_size=batch_size, epochs=1000, cancel_lam=cancel_lam, lr_cancel=lr_cancel, fs=True)
         cancelled_features = list(torch.where(net.cancelout_layer.weight < 0)[0].numpy())
     elif feature_selector == 'gb':
-        gb = GradientBoostingClassifier(n_estimators=50, random_state=0)
-        gb.fit(X_train, Y_train)
-        cancelled_features = np.where(gb.feature_importances_ == 0)[0]
-    elif feature_selector == 'pca':
-        pca = PCA(n_components=20)
-        pca.fit(X_train)
-        component = np.mean(pca.components_, axis=0)
-        cancelled_features = list(torch.where(torch.tensor(component) < 0)[0].numpy())
-    elif feature_selector == 'regression':
-        model = LinearRegression()
+        model = GradientBoostingClassifier()
         model.fit(X_train, Y_train)
-        cancelled_features = list(torch.where(torch.tensor(model.coef_) < 0)[0].numpy())
-
-    X_train_filtered = X_train.copy(deep=True)
-    X_test_filtered = X_test.copy(deep=True)
-    for index, ft_index in enumerate(cancelled_features):
-        X_train = X_train.drop(X_train.columns[ft_index-index], axis=1)
-        X_test = X_test.drop(X_test.columns[ft_index-index], axis=1)
-
-    rf = RandomForestClassifier()
-    rf.fit(X_train, Y_train)
-    AUC = roc_auc_score(rf.predict(X_test), Y_test)
+        cancelled_features = list(np.where(model.feature_importances_ == 0)[0])
+        X_train, X_test = transform(X_train, X_test, cancelled_features)
+        model.fit(X_train, Y_train)
+        auc = roc_auc_score(model.predict(X_test), Y_test)
+        sparsity = len(cancelled_features)/len(X_headers)
+    elif feature_selector = 'lda':
+        model = LinearDiscriminantAnalysis()
+        model.fit_transform(X_train, Y_train)
+        cancelled_features = list(torch.where(torch.tensor(model.coef_[0]) < 0)[0].numpy())
+        X_train, X_test = transform(X_train, X_test, cancelled_features)
+        model.fit(X_train, Y_train)
+        auc = roc_auc_score(model.predict(X_test), Y_test)
+        sparsity = len(cancelled_features)/len(X_headers)
+    elif feature_selector = 'rf':
+        model = RandomForestClassifier()
+        model.fit(X_train, Y_train)
+        # TODO needs fix to select k best
+        cancelled_features = list(np.where(model.feature_importances_ < 0.01)[0]) 
+        X_train, X_test = transform(X_train, X_test, cancelled_features)
+        model.fit(X_train, Y_train)
+        auc = roc_auc_score(model.predict(X_test), Y_test)
+        sparsity = len(cancelled_features)/len(X_headers)
+    elif feature_selector = 'svm':
+        model = SVC(kernel='linear')
+        model.fit(X_train, Y_train)
+        cancelled_features = list(torch.where(torch.tensor(model.coef_[0]) < 0)[0].numpy())
+        X_train, X_test = transform(X_train, X_test, cancelled_features)
+        model.fit(X_train, Y_train)
+        auc = roc_auc_score(model.predict(X_test), Y_test)
+        sparsity = len(cancelled_features)/len(X_headers)
 
     end = time.time()
     runtime = end-start
 
-    return AUC, len(cancelled_features)/train_set[:][0].size(1), runtime
+    return auc, sparsity, runtime
 
 
 def run():
     folds = 5
     runs = 5
-    feature_selectors = ['r2ntab', 'gb', 'pca', 'regression']
+    feature_selectors = ['r2ntab', 'gb', 'lda', 'rf', 'svm']
     cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
     for name in ['adult', 'heloc', 'house', 'magic', 'chess', 'diabetes', 'tictactoe', 'backnote']:
         aucs = {fs: [] for fs in feature_selectors}
@@ -128,4 +148,4 @@ def plot():
 
 
 if __name__ == "__main__":
-    run()
+    test()
