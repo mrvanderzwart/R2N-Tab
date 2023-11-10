@@ -56,7 +56,7 @@ def run_selector(feature_selector, train_set, X_train, Y_train, X_test, Y_test, 
 
     if feature_selector == 'r2ntab':
         model = R2Ntab(train_set[:][0].size(1), 50, 1)
-        model.fit(train_set, batch_size=batch_size, epochs=600, cancel_lam=cancel_lam, lr_cancel=lr_cancel)
+        model.fit(train_set, batch_size=batch_size, epochs=1000, cancel_lam=cancel_lam, lr_cancel=lr_cancel)
         cancelled_features = list(torch.where(model.cancelout_layer.weight < 0)[0].numpy())
     elif feature_selector == 'gb':
         model = GradientBoostingClassifier()
