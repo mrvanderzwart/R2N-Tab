@@ -21,28 +21,6 @@ from sklearn.metrics import roc_auc_score
 import math
 
 
-def test():
-    X, Y, X_headers, Y_headers = transform_dataset('adult', method='onehot-compare', negations=False, labels='binary')
-    datasets = kfold_dataset(X, Y, shuffle=1)
-    X_train, X_test, Y_train, Y_test = datasets[0]
-    n_features = len(X_headers)
-    twentyfive = math.floor(n_features*0.25)
-    fourty = math.floor(n_features*0.5)
-    seventyfive = math.floor(n_features*0.75)
-    for k in [twentyfive, fourty, seventyfive]:
-        model = RandomForestClassifier()
-        model.fit(X_train, Y_train)
-        weights = list(model.feature_importances_)
-        indices = sorted(range(len(weights)), key=lambda i: weights[i])
-        cancelled_features = sorted([i for i in indices[:k]])
-        X_train, X_test = transform(X_train, X_test, cancelled_features)
-        model.fit(X_train, Y_train)
-        auc = roc_auc_score(model.predict(X_test), Y_test)
-        sparsity = len(cancelled_features)/len(X_headers)
-        print(auc)
-        print(sparsity)
-
-
 def transform(X_train, X_test, cancelled_features):
     for index, ft_index in enumerate(cancelled_features):
         X_train = X_train.drop(X_train.columns[ft_index-index], axis=1)
@@ -151,28 +129,41 @@ def run(fold):
             
 def plot():
     cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
+    folds = [1, 2, 3, 4]
+    feature_selectors = ['rf1', 'rf2', 'rf3', 'gb', 'lda', 'svm', 'r2ntab']
     for name in ['adult', 'heloc', 'house', 'magic', 'tictactoe', 'backnote', 'chess', 'diabetes']:
+    
+        aucs = {fs: [] for fs in feature_selectors}
+        sparsity = {fs: [] for fs in feature_selectors}
+        runtimes = {fs: [] for fs in feature_selectors}
 
         print('dataset:', name)
+        
+        for fold in folds:
 
-        with open(f'exp3-auc-{name}.json') as file:
-            aucs = json.load(file)
+            with open(f'exp3-auc-{name}-fold-{fold}.json') as file:
+                aucs = json.load(file)
 
-        with open(f'exp3-sparsities-{name}.json') as file:
-            sparsities = json.load(file)
+            with open(f'exp3-sparsities-{name}-fold-{fold}.json') as file:
+                sparsities = json.load(file)
             
-        with open(f'exp3-runtimes-{name}.json') as file:
-            runtimes = json.load(file)
+            with open(f'exp3-runtimes-{name}-fold-{fold}.json') as file:
+                run_times = json.load(file)
 
 
-        for fs in ['r2ntab', 'gb', 'pca', 'regression']:
-            print(f'AUC {fs}:', sum(aucs[f'{fs}']) / len(aucs[f'{fs}']))
-            print(f'sparsity {fs}:', sum(sparsities[f'{fs}']) / len(sparsities[f'{fs}']))
-            print(f'runtime {fs}:', sum(runtimes[f'{fs}']) / len(runtimes[f'{fs}']))
+            for fs in feature_selectors:
+                aucs[fs].append(np.mean(aucs[f'{fs}']))
+                sparsity[fs].append(np.mean(sparsities[f'{fs}']))
+                runtimes[fs].append(np.mean(run_times[f'{fs}']))
             
-        print('\n')
+        for fs in feature_selectors:
+            print(fs)
+            print(np.mean(aucs[fs]))
+            print(np.mean(sparsities[fs]))
+            print(np.mean(runtimes[fs]))
 
 
 if __name__ == "__main__":
-    fold = int(sys.argv[1])
-    run(fold)
+    #fold = int(sys.argv[1])
+    #run(fold)
+    plot()
