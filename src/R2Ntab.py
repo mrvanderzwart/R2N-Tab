@@ -119,7 +119,7 @@ class R2Ntab(nn.Module):
                     if index == 0:
                         print('if', end=' ')
                     else:
-                        print('else if', end=' ')
+                        print('or', end=' ')
 
                     print('[', end=' ')
                     for index, condition in enumerate(rule):
