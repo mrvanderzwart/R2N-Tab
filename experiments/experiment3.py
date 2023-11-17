@@ -8,6 +8,8 @@ import wittgenstein as rule
 import sys
 
 sys.path.insert(0, '..')
+sys.path.insert(0, '../src')
+sys.path.insert(0, '../src/include')
 
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.tree import export_text
@@ -64,62 +66,61 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
         
     return aucs, n_rules, conditions
 
-def run():
-    rule_learners = ['r2ntab', 'ripper', 'cart', 'c4.5', 'classy']
-    folds = 5
+def run(dataset_name, fold):
+    rule_learners = ['ripper', 'cart', 'c4.5']
     dataset_names = ['chess', 'diabetes' , 'backnote', 'tictactoe']
     conds = {'house' : [20, 35, 50, 65, 80], 'adult' : [25, 40, 55, 70, 95], 'heloc' : [10, 25, 40, 55, 70], 'magic' : [60, 75, 90, 105, 120], 'chess' : [120, 130, 140, 160, 180], 'diabetes' : [110, 120, 140, 160, 180], 'tictactoe' : [110, 120, 140, 160, 180], 'backnote' : [110, 120, 140, 160, 180]}
     cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
-    for name in dataset_names:
-        print(f'dataset: {name}')
-        aucs = {rl: [] for rl in rule_learners}
-        rules = {rl: [] for rl in rule_learners}
-        conditions = {rl: [] for rl in rule_learners}
-        runtimes = {rl: [] for rl in rule_learners}
+    results = {}
+    runs = 2
 
-        X, Y, X_headers, Y_headers = transform_dataset(name, method='onehot-compare', negations=False, labels='binary')
-        datasets = kfold_dataset(X, Y, shuffle=1)
-        
-        batch_size = 400 if len(X) > 10e3 else 40
-        
-        if name in ['chess', 'heloc']:
-            lr_cancel = 1e-2
-        else:
-            lr_cancel = 5e-3
-            
-        for fold in range(folds):
-            print(f'  fold: {fold+1}')
-            X_train, X_test, Y_train, Y_test = datasets[fold]
-            train_set = torch.utils.data.TensorDataset(torch.Tensor(X_train.to_numpy()), torch.Tensor(Y_train))
-            test_set = torch.utils.data.TensorDataset(torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test))
+    results['aucs'] = {}
+    results['rules'] = {}
+    results['conditions'] = {}
+    results['runtimes'] = {}
+    
+    for rl in rule_learners:
+        results['aucs'][rl] = []
+        results['rules'][rl] = []
+        results['conditions'][rl] = []
+        results['runtimes'][rl] = []
 
-            for learner in rule_learners:
-                start = time.time()
-                auc, n_rules, n_conds = run_learner(learner, X_train, X_test, Y_train, Y_test, train_set, test_set, X_headers, batch_size, lr_cancel, cancel_lams[name], conds[name].copy())
-                end = time.time()
-                runtime = end-start
-                aucs[learner].append(auc)
-                rules[learner].append(n_rules)
-                conditions[learner].append(n_conds)
-                runtimes[learner].append(runtime)
-                
-        for learner in rule_learners:
-            aucs[learner] = np.mean(aucs[learner], axis=0).tolist()
-            rules[learner] = np.mean(rules[learner], axis=0).tolist()
-            conditions[learner] = np.mean(conditions[learner], axis=0).tolist()
-            runtimes[learner] = np.mean(runtimes[learner], axis=0).tolist()
-                
-        with open(f'exp4-aucs-{name}.json', 'w') as file:
-            json.dump(aucs, file)
+    X, Y, X_headers, Y_headers = transform_dataset(dataset_name, method='onehot-compare', negations=False, labels='binary')
+    datasets = kfold_dataset(X, Y, shuffle=1)
+    
+    batch_size = 400 if len(X) > 10e3 else 40
+    
+    if dataset_name in ['chess', 'heloc']:
+        lr_cancel = 1e-2
+    else:
+        lr_cancel = 5e-3
+        
+    X_train, X_test, Y_train, Y_test = datasets[fold]
+    train_set = torch.utils.data.TensorDataset(torch.Tensor(X_train.to_numpy()), torch.Tensor(Y_train))
+    test_set = torch.utils.data.TensorDataset(torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test))
+
+    for learner in rule_learners:
+        print(f'  rule learner: {learner}')
+        learner_aucs, learner_rules, learner_conds, learner_runtimes = [], [], [], []
+        for run in range(runs):
+            print(f'    run: {run+1}')
+            start = time.time()
+            auc, n_rules, n_conds = run_learner(learner, X_train, X_test, Y_train, Y_test, train_set, test_set, X_headers, batch_size, lr_cancel, cancel_lams[dataset_name], conds[dataset_name].copy())
+            end = time.time()
+            runtime = end-start
+            learner_aucs.append(auc)
+            learner_rules.append(n_rules)
+            learner_conds.append(n_conds)
+            learner_runtimes.append(runtime)
             
-        with open(f'exp4-rules-{name}.json', 'w') as file:
-            json.dump(rules, file)
+        results['aucs'][learner] = np.mean(learner_aucs, axis=0).tolist()
+        results['rules'][learner] = np.mean(learner_rules, axis=0).tolist()
+        results['conditions'][learner] = np.mean(learner_conds, axis=0).tolist()
+        results['runtimes'][learner] = np.mean(learner_runtimes, axis=0).tolist()
             
-        with open(f'exp4-conditions-{name}.json', 'w') as file:
-            json.dump(conditions, file)
-            
-        with open(f'exp4-runtimes-{name}.json', 'w') as file:
-            json.dump(runtimes, file)
+    with open(f'exp4-{dataset_name}-fold-{fold+1}.json', 'w') as file:
+        json.dump(results, file)
+
 
 def plot():
     colors = ['darkslategrey', 'mediumblue', 'orange', 'green', 'purple']
@@ -161,4 +162,6 @@ def plot():
 
 
 if __name__ == "__main__":
-    run()
+    dataset_name = sys.argv[1]
+    fold = int(sys.argv[2])
+    run(dataset_name, fold-1)
