@@ -19,13 +19,12 @@ name = sys.argv[1]
 
 for fold in range(5):
     X_table, Y_table, _, _ = predefined_dataset(name)
+    
+    le = LabelEncoder()
+    Y_table = le.fit_transform(Y_table).astype(int)
 
     datasets = kfold_dataset(X_table, Y_table)
     X_train, X_test, Y_train, Y_test = datasets[fold-1]
-
-    le = LabelEncoder()
-    Y_train = le.fit_transform(Y_train).astype(int)
-    Y_test = le.fit_transform(Y_test).astype(int)
 
     fb = FeatureBinarizer(negations=True)
     X_train_fb = fb.fit_transform(X_train)
@@ -33,7 +32,7 @@ for fold in range(5):
 
     start = time.time()
 
-    boolean_model = BooleanRuleCG(timeMax=500, iterMax=5000)
+    boolean_model = BooleanRuleCG(timeMax=500)
     explainer = BRCGExplainer(boolean_model)
     explainer.fit(X_train_fb, Y_train)
 
@@ -43,10 +42,8 @@ for fold in range(5):
     end = time.time()
     results['auc'].append(roc_auc_score(Y_pred, Y_test))
     results['runtime'].append(end-start)
-
     conditions = 0
     for rule in e['rules']:
-        print(rule)
         conditions += (rule.count(' AND ')+1)
         
     results['rules'].append(len(e['rules']))
