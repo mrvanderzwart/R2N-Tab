@@ -6,8 +6,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 
-sys.path.insert(0, '../src')
 sys.path.insert(0, '..')
+sys.path.insert(0, '../src')
+sys.path.insert(0, '../src/include')
+sys.path.insert(0, '../datasets')
 
 from datasets.dataset import transform_dataset, kfold_dataset
 from R2Ntab import R2Ntab
@@ -35,97 +37,84 @@ def run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_s
     return auc, len(rules), conditions, runtime
 
 
-def run():
+def run(dataset_name):
     folds = 1
     runs = 1
-    dataset_names = ['adult']
-    for name in dataset_names:
-        aucs = {network: [] for network in networks}
-        rules = {network: [] for network in networks}
-        conditions = {network: [] for network in networks}
-        runtimes = {network: [] for network in networks}
+    results = {}
+    
+    results['aucs'] = {}
+    results['rules'] = {}
+    results['conditions'] = {}
+    results['runtimes'] = {}
+    
+    for network in networks:
+        results['aucs'][network] = []
+        results['rules'][network] = []
+        results['conditions'][network] = []
+        results['runtimes'][network] = []
 
-        X, Y, X_headers, Y_headers = transform_dataset(name, method='onehot-compare', negations=False, labels='binary')
-        datasets = kfold_dataset(X, Y, k=5, shuffle=1)
-        
-        batch_size = 400 if len(X) > 10e3 else 40
+    X, Y, X_headers, Y_headers = transform_dataset(dataset_name, method='onehot-compare', negations=False, labels='binary')
+    datasets = kfold_dataset(X, Y, k=5, shuffle=1)
+    
+    batch_size = 400 if len(X) > 10e3 else 40
 
-        print(f'dataset: {name}')
-        for fold in range(folds):
-            print(f'  fold: {fold+1}')
-            X_train, X_test, Y_train, Y_test = datasets[fold]
-            train_set = torch.utils.data.TensorDataset(torch.Tensor(X_train.to_numpy()), torch.Tensor(Y_train))
-            test_set = torch.utils.data.TensorDataset(torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test))
+    for fold in range(folds):
+        print(f'  fold: {fold+1}')
+        X_train, X_test, Y_train, Y_test = datasets[fold]
+        train_set = torch.utils.data.TensorDataset(torch.Tensor(X_train.to_numpy()), torch.Tensor(Y_train))
+        test_set = torch.utils.data.TensorDataset(torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test))
 
-            for network in networks:
-                auc_values, n_rules, n_conds, run_times = 0, 0, 0, 0
-                for run in range(runs):
-                    print(f'  run: {run+1}')
-                    auc, n_rule, conds, runtime = run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size)
+        for network in networks:
+            auc_values, n_rules, n_conds, run_times = 0, 0, 0, 0
+            for run in range(runs):
+                print(f'  run: {run+1}')
+                auc, n_rule, conds, runtime = run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size)
 
-                    auc_values += auc
-                    n_rules += n_rule
-                    n_conds += conds
-                    run_times += runtime
-                    
-                aucs[network].append(auc_values/runs)
-                rules[network].append(n_rules/runs)
-                conditions[network].append(n_conds/runs)
-                runtimes[network].append(run_times/runs)
+                auc_values += auc
+                n_rules += n_rule
+                n_conds += conds
+                run_times += runtime
+                
+            results['aucs'][network].append(auc_values/runs)
+            results['rules'][network].append(n_rules/runs)
+            results['conditions'][network].append(n_conds/runs)
+            results['runtimes'][network].append(run_times/runs)
 
-        with open(f'exp1-aucs-{name}.json', 'w') as file:
-            json.dump(aucs, file)
-
-        with open(f'exp1-rules-{name}.json', 'w') as file:
-            json.dump(rules, file)
-            
-        with open(f'exp1-conditions-{name}.json', 'w') as file:
-            json.dump(conditions, file)
-
-        with open(f'exp1-runtimes-{name}.json', 'w') as file:
-            json.dump(runtimes, file)
+        with open(f'exp1-{dataset_name}.json', 'w') as file:
+            json.dump(results, file)
             
             
 def plot():
-    dataset_names = ['adult', 'heloc', 'house', 'magic', 'tictactoe', 'chess', 'diabetes', 'backnote']
+    dataset_names = ['heloc']
     for name in dataset_names:
 
         print('dataset:', name)
 
-        with open(f'exp1-aucs-{name}.json') as file:
-            aucs = json.load(file)
-
-        with open(f'exp1-rules-{name}.json') as file:
-            rules = json.load(file)
-
-        with open(f'exp1-conditions-{name}.json') as file:
-            conds = json.load(file)
-
-        with open(f'exp1-runtimes-{name}.json') as file:
-            runtimes = json.load(file)
+        with open(f'exp1-{name}.json') as file:
+            results = json.load(file)
 
         for rate in ['2', '4', '6']:
 
             print('  rate: 1e-', rate)
 
             plt.style.use('seaborn-darkgrid')
-            l1 = plt.scatter(conds['drnet'], aucs['drnet'], c='red', label='DR-Net')
-            l2 = plt.scatter(conds[f'r2ntab{rate}'], aucs[f'r2ntab{rate}'], c='blue', label=f'R2N-Tab $\lambda$=1e-{rate}')
+            l1 = plt.scatter(results['conditions']['drnet'], results['aucs']['drnet'], c='red', label='DR-Net')
+            l2 = plt.scatter(results['conditions'][f'r2ntab{rate}'], results['aucs'][f'r2ntab{rate}'], c='blue', label=f'R2N-Tab $\lambda$=1e-{rate}')
 
-            mean_auc_drnet = sum(aucs['drnet']) / len(aucs['drnet'])
-            mean_auc_r2ntab = sum(aucs[f'r2ntab{rate}']) / len(aucs[f'r2ntab{rate}'])
-            mean_sparsity_drnet = sum(conds['drnet']) / len(conds['drnet'])
-            mean_sparsity_r2ntab = sum(conds[f'r2ntab{rate}']) / len(conds[f'r2ntab{rate}'])
+            mean_auc_drnet = sum(results['aucs']['drnet']) / len(results['aucs']['drnet'])
+            mean_auc_r2ntab = sum(results['aucs'][f'r2ntab{rate}']) / len(results['aucs'][f'r2ntab{rate}'])
+            mean_sparsity_drnet = sum(results['conditions']['drnet']) / len(results['conditions']['drnet'])
+            mean_sparsity_r2ntab = sum(results['conditions'][f'r2ntab{rate}']) / len(results['conditions'][f'r2ntab{rate}'])
 
-            print(f'    mean AUC R2N-Tab {rate}:', mean_auc_r2ntab, 'std:', np.std(aucs[f'r2ntab{rate}']))
-            print(f'    mean rules R2N-Tab {rate}:', sum(rules[f'r2ntab{rate}']) / len(rules[f'r2ntab{rate}']), 'std:', np.std(rules[f'r2ntab{rate}']))
-            print(f'    mean conditions R2N-Tab {rate}:', mean_sparsity_r2ntab, 'std:', np.std(conds[f'r2ntab{rate}']))
-            print(f'    mean runtimes R2N-Tab {rate}:', sum(runtimes[f'r2ntab{rate}']) / len(runtimes[f'r2ntab{rate}']), 'std:', np.std(runtimes[f'r2ntab{rate}']))
+            print(f'    mean AUC R2N-Tab {rate}:', mean_auc_r2ntab, 'std:', np.std(results['aucs'][f'r2ntab{rate}']))
+            print(f'    mean rules R2N-Tab {rate}:', sum(results['rules'][f'r2ntab{rate}']) / len(results['rules'][f'r2ntab{rate}']), 'std:', np.std(results['rules'][f'r2ntab{rate}']))
+            print(f'    mean conditions R2N-Tab {rate}:', mean_sparsity_r2ntab, 'std:', np.std(results['conditions'][f'r2ntab{rate}']))
+            print(f'    mean runtimes R2N-Tab {rate}:', sum(results['runtimes'][f'r2ntab{rate}']) / len(results['runtimes'][f'r2ntab{rate}']), 'std:', np.std(results['runtimes'][f'r2ntab{rate}']))
             if rate == '2':
-                print('    mean AUC DR-Net:', mean_auc_drnet, 'std:', np.std(aucs['drnet']))
-                print('    mean rules DR-Net:', sum(rules['drnet']) / len(rules['drnet']), 'std:', np.std(rules['drnet']))
-                print('    mean conditions DR-Net:', mean_sparsity_drnet, 'std:', np.std(conds['drnet']))
-                print('    mean runtimes DR-Net:', sum(runtimes['drnet']) / len(runtimes['drnet']), 'std:', np.std(runtimes['drnet']))
+                print('    mean AUC DR-Net:', mean_auc_drnet, 'std:', np.std(results['aucs']['drnet']))
+                print('    mean rules DR-Net:', sum(results['rules']['drnet']) / len(results['rules']['drnet']), 'std:', np.std(results['rules']['drnet']))
+                print('    mean conditions DR-Net:', mean_sparsity_drnet, 'std:', np.std(results['conditions']['drnet']))
+                print('    mean runtimes DR-Net:', sum(results['runtimes']['drnet']) / len(results['runtimes']['drnet']), 'std:', np.std(results['runtimes']['drnet']))
 
             plt.scatter(mean_sparsity_drnet, mean_auc_drnet, marker='X', edgecolors='black', s=120, c='red')
             plt.scatter(mean_sparsity_r2ntab, mean_auc_r2ntab, marker='X', edgecolors='black', s=120, c='blue')
@@ -141,4 +130,6 @@ def plot():
 
 
 if __name__ == "__main__":
-    run()
+    #dataset_name = sys.argv[1]
+    #run(dataset_name)
+    plot()
