@@ -17,7 +17,7 @@ from DRNet import train as train, DRNet
 from sklearn.metrics import roc_auc_score
 
 networks = ['drnet', 'r2ntab2', 'r2ntab4', 'r2ntab6']
-def run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size): 
+def run_network(network, train_set, test_set, X_train, Y_train, X_test, Y_test, X_headers, batch_size): 
     cancel_lam = {'r2ntab2': 1e-2, 'r2ntab4': 1e-4, 'r2ntab6': 1e-6}.get(network, 0)
 
     start = time.time()
@@ -28,13 +28,13 @@ def run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_s
     else:
         train(net, train_set, test_set, device='cpu', epochs=1000, batch_size=batch_size)
     auc = roc_auc_score(net.predict(np.array(X_test)), Y_test)
+    train_auc = roc_auc_score(net.predict(np.array(X_train)), Y_train)
     rules = net.extract_rules(X_headers) if network.startswith('r2ntab') else net.get_rules(X_headers)
     conditions = sum(map(len, rules))
-
     end = time.time()
     runtime = end - start
         
-    return auc, len(rules), conditions, runtime
+    return auc, train_auc, len(rules), conditions, runtime
 
 
 def run(dataset_name):
@@ -43,12 +43,14 @@ def run(dataset_name):
     results = {}
     
     results['aucs'] = {}
+    results['aucs_train'] = {}
     results['rules'] = {}
     results['conditions'] = {}
     results['runtimes'] = {}
     
     for network in networks:
         results['aucs'][network] = []
+        results['aucs_train'][network] = []
         results['rules'][network] = []
         results['conditions'][network] = []
         results['runtimes'][network] = []
@@ -65,17 +67,19 @@ def run(dataset_name):
         test_set = torch.utils.data.TensorDataset(torch.Tensor(X_test.to_numpy()), torch.Tensor(Y_test))
 
         for network in networks:
-            auc_values, n_rules, n_conds, run_times = 0, 0, 0, 0
+            auc_values, train_aucs, n_rules, n_conds, run_times = 0, 0, 0, 0, 0
             for run in range(runs):
                 print(f'  run: {run+1}')
-                auc, n_rule, conds, runtime = run_network(network, train_set, test_set, X_test, Y_test, X_headers, batch_size)
+                auc, train_auc, n_rule, conds, runtime = run_network(network, train_set, test_set, X_train, Y_train, X_test, Y_test, X_headers, batch_size)
 
                 auc_values += auc
+                train_aucs += train_auc
                 n_rules += n_rule
                 n_conds += conds
                 run_times += runtime
                 
             results['aucs'][network].append(auc_values/runs)
+            results['aucs_train'][network].append(train_aucs/runs)
             results['rules'][network].append(n_rules/runs)
             results['conditions'][network].append(n_conds/runs)
             results['runtimes'][network].append(run_times/runs)
@@ -130,6 +134,5 @@ def plot():
 
 
 if __name__ == "__main__":
-    #dataset_name = sys.argv[1]
-    #run(dataset_name)
-    plot()
+    dataset_name = sys.argv[1]
+    run(dataset_name)
