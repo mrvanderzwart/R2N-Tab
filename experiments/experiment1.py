@@ -89,7 +89,7 @@ def run(dataset_name):
             
             
 def plot():
-    dataset_names = ['heloc']
+    dataset_names = ['heloc', 'house', 'magic', 'tictactoe', 'diabetes', 'chess', 'backnote']
     for name in dataset_names:
 
         print('dataset:', name)
@@ -103,7 +103,7 @@ def plot():
 
             plt.style.use('seaborn-darkgrid')
             l1 = plt.scatter(results['conditions']['drnet'], results['aucs']['drnet'], c='red', label='DR-Net')
-            l2 = plt.scatter(results['conditions'][f'r2ntab{rate}'], results['aucs'][f'r2ntab{rate}'], c='blue', label=f'R2N-Tab $\lambda$=1e-{rate}')
+            l2 = plt.scatter(results['conditions'][f'r2ntab{rate}'], results['aucs'][f'r2ntab{rate}'], c='blue', label=f'R2N-Tab $\lambda_3$=1e-{rate}')
 
             mean_auc_drnet = sum(results['aucs']['drnet']) / len(results['aucs']['drnet'])
             mean_auc_r2ntab = sum(results['aucs'][f'r2ntab{rate}']) / len(results['aucs'][f'r2ntab{rate}'])
@@ -134,5 +134,6 @@ def plot():
 
 
 if __name__ == "__main__":
-    dataset_name = sys.argv[1]
-    run(dataset_name)
+    #dataset_name = sys.argv[1]
+    #run(dataset_name)
+    plot()
