@@ -1,6 +1,6 @@
 from AIX360.aix360.algorithms.rbm import BRCGExplainer, BooleanRuleCG
 from AIX360.aix360.algorithms.rbm import FeatureBinarizer
-from datasets.dataset import predefined_dataset, kfold_dataset
+from datasets.dataset import kfold_dataset, transform_dataset
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import LabelEncoder
 
@@ -18,17 +18,13 @@ results['conditions'] = []
 name = sys.argv[1]
 
 for fold in range(5):
-    X_table, Y_table, _, _ = predefined_dataset(name)
-    
-    le = LabelEncoder()
-    Y_table = le.fit_transform(Y_table).astype(int)
-
+    X_table, Y_table, _, _ = transform_dataset(name)
     datasets = kfold_dataset(X_table, Y_table)
     X_train, X_test, Y_train, Y_test = datasets[fold-1]
 
     fb = FeatureBinarizer(negations=True)
     X_train_fb = fb.fit_transform(X_train)
-    X_test_fb = fb.transform(X_test)
+    X_test_fb = fb.fit_transform(X_test)
 
     start = time.time()
 
