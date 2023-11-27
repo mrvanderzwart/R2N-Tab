@@ -67,12 +67,11 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
     return aucs, n_rules, conditions
 
 def run(dataset_name, fold):
-    rule_learners = ['ripper', 'cart', 'c4.5']
-    dataset_names = ['chess', 'diabetes' , 'backnote', 'tictactoe']
-    conds = {'house' : [20, 35, 50, 65, 80], 'adult' : [25, 40, 55, 70, 95], 'heloc' : [10, 25, 40, 55, 70], 'magic' : [60, 75, 90, 105, 120], 'chess' : [120, 130, 140, 160, 180], 'diabetes' : [110, 120, 140, 160, 180], 'tictactoe' : [110, 120, 140, 160, 180], 'backnote' : [110, 120, 140, 160, 180]}
+    rule_learners = ['r2ntab']
+    #conds = {'house' : [20, 35, 50, 65, 80], 'adult' : [25, 40, 55, 70, 95], 'heloc' : [10, 25, 40, 55, 70], 'magic' : [60, 75, 90, 105, 120], 'chess' : [120, 130, 140, 160, 180], 'diabetes' : [110, 120, 140, 160, 180], 'tictactoe' : [110, 120, 140, 160, 180], 'backnote' : [110, 120, 140, 160, 180]}
     cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
     results = {}
-    runs = 2
+    runs = 5
 
     results['aucs'] = {}
     results['rules'] = {}
@@ -92,7 +91,7 @@ def run(dataset_name, fold):
 
     if dataset_name == 'heloc':
         epochs = 10000
-    else if dataset_name == 'house' or dataset_name == 'magic':
+    elif dataset_name == 'house' or dataset_name == 'magic':
         epochs = 8000
     else:
         epochs = 5000
