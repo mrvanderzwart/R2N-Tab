@@ -29,12 +29,12 @@ def transform(X_train, X_test, cancelled_features):
     return X_train, X_test
 
 
-def run_selector(feature_selector, train_set, X_train, Y_train, X_test, Y_test, batch_size, lr_cancel, cancel_lam):
+def run_selector(feature_selector, train_set, X_train, Y_train, X_test, Y_test, batch_size, lr_cancel, cancel_lam, epochs):
     start = time.time()
 
     if feature_selector == 'r2ntab':
         model = R2Ntab(train_set[:][0].size(1), 50, 1)
-        model.fit(train_set, batch_size=batch_size, epochs=1000, cancel_lam=cancel_lam, lr_cancel=lr_cancel)
+        model.fit(train_set, batch_size=batch_size, epochs=epochs, cancel_lam=cancel_lam, lr_cancel=lr_cancel)
         cancelled_features = list(torch.where(model.cancelout_layer.weight < 0)[0].numpy())
     elif feature_selector == 'gb':
         model = GradientBoostingClassifier()
@@ -81,9 +81,9 @@ def run_selector(feature_selector, train_set, X_train, Y_train, X_test, Y_test, 
 
 def run(fold):
     runs = 5
-    feature_selectors = ['rf1', 'rf2', 'rf3', 'gb', 'lda', 'svm', 'r2ntab']
+    feature_selectors = ['r2ntab']
     cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
-    for name in ['adult', 'heloc', 'house', 'magic', 'chess', 'diabetes', 'tictactoe', 'backnote']:
+    for name in ['tictactoe']:
         aucs = {fs: [] for fs in feature_selectors}
         sparsity = {fs: [] for fs in feature_selectors}
         runtimes = {fs: [] for fs in feature_selectors}
@@ -92,6 +92,11 @@ def run(fold):
         datasets = kfold_dataset(X, Y, shuffle=1)
 
         batch_size = 400 if len(X) > 10e3 else 40
+        
+        if name == 'tictactoe':
+            epochs=6000
+        else:
+            epochs = 1000
         
         if name in ['chess', 'heloc']:
             lr_cancel = 1e-2
@@ -107,7 +112,7 @@ def run(fold):
             auc_values, sparsity_values, runtime_values = 0, 0, 0
             for run in range(runs):
                 print(f'    run: {run+1}')
-                new_auc, new_sparsity, new_runtime = run_selector(fs, train_set, X_train, Y_train, X_test, Y_test, batch_size, lr_cancel, cancel_lams[name])
+                new_auc, new_sparsity, new_runtime = run_selector(fs, train_set, X_train, Y_train, X_test, Y_test, batch_size, lr_cancel, cancel_lams[name], epochs)
 
                 auc_values += new_auc
                 sparsity_values += new_sparsity
@@ -164,6 +169,5 @@ def plot():
 
 
 if __name__ == "__main__":
-    #fold = int(sys.argv[1])
-    #run(fold)
-    plot()
+    fold = int(sys.argv[1])
+    run(fold)
