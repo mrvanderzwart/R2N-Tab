@@ -15,7 +15,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.tree import export_text
 from datasets.dataset import transform_dataset, kfold_dataset, predefined_dataset
 from R2Ntab import R2Ntab
-from rulelist import RuleList
+#from rulelist import RuleList
 from sklearn.metrics import roc_auc_score
 
 import warnings
@@ -35,7 +35,7 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
         model.fit(train_set, test_set, batch_size=batch_size, lr_cancel=lr_cancel, cancel_lam=cancel_lam, epochs=epochs)
         Y_pred = model.predict(X_test)
         aucs = roc_auc_score(Y_pred, Y_test)
-        rules = model.extract_rules()
+        rules = model.extract_rules(header=X_headers)
         n_rules = len(rules)
         conditions = sum(map(len, rules))
     elif rule_learner == 'ripper':
