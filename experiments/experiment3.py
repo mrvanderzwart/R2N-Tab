@@ -31,8 +31,13 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
     RX_test = RX_test.sort_index(axis=1)
 
     if rule_learner == 'r2ntab':
-        model = R2Ntab(train_set[:][0].size(1), 50, 1)
-        aucs, n_rules, conditions = model.fit(train_set, test_set, batch_size=batch_size, lr_cancel=lr_cancel, cancel_lam=cancel_lam, epochs=epochs)
+        model = R2Ntab(train_set[:][0].size(1), 10, 1)
+        model.fit(train_set, test_set, batch_size=batch_size, lr_cancel=lr_cancel, cancel_lam=cancel_lam, epochs=epochs)
+        Y_pred = model.predict(X_test)
+        aucs = roc_auc_score(Y_pred, Y_test)
+        rules = model.extract_rules()
+        n_rules = len(rules)
+        conditions = sum(map(len, rules))
     elif rule_learner == 'ripper':
         for max_conditions in [50, 75, 100, 200, 300]:
             model = rule.RIPPER(max_total_conds=max_conditions)
