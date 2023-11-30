@@ -133,10 +133,15 @@ def run(fold):
             
             
 def plot():
-    cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
-    folds = [1, 2, 3, 4]
-    feature_selectors = ['rf1', 'rf2', 'rf3', 'gb', 'lda', 'svm', 'r2ntab']
-    for name in ['adult', 'heloc', 'house', 'magic', 'tictactoe', 'backnote', 'chess', 'diabetes']:
+    folds = [1, 2, 3, 4, 5]
+    x = np.array([0, 1, 2, 3, 4, 5, 6, 7])
+    dataset_names = ['heloc', 'house', 'adult', 'magic', 'diabetes', 'chess', 'backnote', 'tictactoe']
+    plt.xticks(x, dataset_names)
+    y = []
+    feature_selectors = ['r2ntab', 'rf1', 'gb', 'lda', 'svm']
+    symbols = ['v', 's', 'o', 'X', 'd']
+    colors = ['blue', 'green', 'purple', 'yellow', 'brown']
+    for index, name in enumerate(dataset_names):
     
         aucs = {fs: [] for fs in feature_selectors}
         sparsity = {fs: [] for fs in feature_selectors}
@@ -161,13 +166,23 @@ def plot():
                 sparsity[fs].append(np.mean(sparsities[f'{fs}']))
                 runtimes[fs].append(np.mean(run_times[f'{fs}']))
             
-        for fs in feature_selectors:
+        for i, fs in enumerate(feature_selectors):
             print(fs)
             print(np.mean(aucs[fs]))
             print(np.mean(sparsities[fs]))
             print(np.mean(runtimes[fs]))
+            plt.scatter(index, np.mean(run_times[fs]), marker=symbols[i], color=colors[i])
+       
+    plt.legend(['R2N-Tab', 'Random Forest', 'Gradient Boosting', 'LDA', 'SVM'], frameon=True, fontsize=9, loc='lower left')
+    plt.yscale('log')
+    plt.title('runtimes (s) of feature selection algorithms across datasets')
+    plt.ylabel('runtime (s)')
+    plt.savefig('exp2-runningtimes.pdf')
+    plt.show()
 
 
 if __name__ == "__main__":
     fold = int(sys.argv[1])
     run(fold)
+    plt.style.use('seaborn-darkgrid')
+    plot()
