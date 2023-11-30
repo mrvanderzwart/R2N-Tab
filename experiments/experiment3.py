@@ -15,7 +15,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.tree import export_text
 from datasets.dataset import transform_dataset, kfold_dataset, predefined_dataset
 from R2Ntab import R2Ntab
-#from rulelist import RuleList
+from rulelist import RuleList
 from sklearn.metrics import roc_auc_score
 
 import warnings
@@ -35,7 +35,7 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
         model.fit(train_set, test_set, batch_size=batch_size, lr_cancel=lr_cancel, cancel_lam=cancel_lam, epochs=epochs)
         Y_pred = model.predict(X_test)
         aucs = roc_auc_score(Y_pred, Y_test)
-        rules = model.extract_rules(header=X_headers)
+        rules = model.extract_rules()
         n_rules = len(rules)
         conditions = sum(map(len, rules))
     elif rule_learner == 'ripper':
@@ -136,43 +136,35 @@ def run(dataset_name, fold):
 def plot():
     colors = ['darkslategrey', 'mediumblue', 'orange', 'green', 'purple']
     plt.style.use('seaborn-darkgrid')
-    for name in ['adult', 'house']:
-    
-        with open(f'{name}_graph_auc.json') as file:
-            aucs = json.load(file)
-            
-        with open(f'{name}_graph_conds.json') as file:
-            conds = json.load(file)
-            
-        if name == 'house':
-            plt.scatter(conds['ripper'][1], aucs['ripper'][1], marker='x', c='mediumblue', label='_nolegend_')
-            plt.scatter(conds['ripper'][2], aucs['ripper'][2], marker='x', c='mediumblue', label='_nolegend_')
-            conds['ripper'] = [conds['ripper'][0], conds['ripper'][3], conds['ripper'][4]]
-            aucs['ripper'] = [aucs['ripper'][0], aucs['ripper'][3], aucs['ripper'][4]]
-            
-        if name == 'adult':
-            plt.scatter(conds['r2ntab'][3], aucs['r2ntab'][3], marker='x', c='darkslategrey', label='_nolegend_')
-            conds['r2ntab'] = [conds['r2ntab'][0], conds['r2ntab'][1], conds['r2ntab'][2], conds['r2ntab'][4]]
-            aucs['r2ntab'] = [aucs['r2ntab'][0], aucs['r2ntab'][1], aucs['r2ntab'][2], aucs['r2ntab'][4]]
-            
-        for i, fs in enumerate(['r2ntab', 'ripper', 'cart', 'c4.5', 'classy']):
-            plt.plot(conds[f'{fs}'], aucs[f'{fs}'], '-x', color=colors[i])
-
-        l = plt.legend(['R2N-Tab', 'RIPPER', 'CART', 'C4.5', 'Classy'], fontsize=12, frameon=True)
-        for i in l.legendHandles:
-            i.set_marker('')
-            
-        if name == 'house':
-            plt.xlim([0,350])
-        elif name == 'adult':
-            plt.xlim([0,200])
-        plt.xlabel('model complexity')
-        plt.ylabel('AUC')
-        plt.savefig(f'exp4-graph-{name}.pdf')
-        plt.show()
+    x = np.array([0, 1, 2, 3, 4, 5, 6, 7])
+    dataset_names = ['heloc', 'house', 'adult', 'magic', 'diabetes', 'chess', 'backnote', 'tictactoe']
+    plt.xticks(x, dataset_names)
+    y = []
+    feature_selectors = ['R2N-Tab', 'RIPPER', 'CART', 'C4.5', 'CLASSY', 'TURS', 'CG']
+    symbols = ['v', 's', 'o', 'X', 'd', 'P', 'D']
+    colors = ['blue', 'green', 'purple', 'yellow', 'brown', 'orange', 'black']
+    y = [[207, 209, 199, 70, 448, 1703, 724, 503],
+        [45, 116, 131, 62, 1.67, 2.23, 1.02, 0.92],
+        [0.196, 0.362, 0.307, 0.201, 0.022, 0.020, 0.0165, 0.016],
+        [0.197, 0.3611, 0.303, 0.199, 0.021, 0.019, 0.0157, 0.016],
+        [166, 764, 161, 379, 17, 12, 8.7, 16.8],
+        [5214, 83418, 42224, 32642, 75, 2499, 70, 315],
+        [224, 574, 234, 149, 81, 1.78, 10.1, 2.7]]
+    for index, name in enumerate(dataset_names):     
+        for i in range(len(y)):      
+            plt.scatter(index, y[i][index], color=colors[i], marker=symbols[i])
+        
+    plt.legend(['R2N-Tab', 'RIPPER', 'CART', 'C4.5', 'CLASSY', 'TURS', 'CG'], frameon=True, fontsize=9, loc='best')
+    plt.yscale('log')
+    plt.title('runtimes (s) of feature selection algorithms across datasets')
+    plt.ylabel('runtime (s)')
+    plt.ylim((0.01, 1000000))
+    plt.savefig('exp3-runningtimes.pdf')
+    plt.show()
 
 
 if __name__ == "__main__":
-    dataset_name = sys.argv[1]
-    fold = int(sys.argv[2])
-    run(dataset_name, fold-1)
+    #dataset_name = sys.argv[1]
+    #fold = int(sys.argv[2])
+    #run(dataset_name, fold-1)
+    plot()
