@@ -122,13 +122,13 @@ def run(fold):
             sparsity[fs].append(sparsity_values/5)
             runtimes[fs].append(runtime_values/runs)
 
-        with open(f'exp3-auc-{name}-fold-{fold}.json', 'w') as file:
+        with open(f'exp2-auc-{name}-fold-{fold}.json', 'w') as file:
             json.dump(aucs, file)
 
-        with open(f'exp3-sparsities-{name}-fold-{fold}.json', 'w') as file:
+        with open(f'exp2-sparsities-{name}-fold-{fold}.json', 'w') as file:
             json.dump(sparsity, file)
 
-        with open(f'exp3-runtimes-{name}-fold-{fold}.json', 'w') as file:
+        with open(f'exp2-runtimes-{name}-fold-{fold}.json', 'w') as file:
             json.dump(runtimes, file)
             
             
@@ -151,13 +151,13 @@ def plot():
         
         for fold in folds:
 
-            with open(f'exp3-auc-{name}-fold-{fold}.json') as file:
+            with open(f'exp2-auc-{name}-fold-{fold}.json') as file:
                 aucs = json.load(file)
 
-            with open(f'exp3-sparsities-{name}-fold-{fold}.json') as file:
+            with open(f'exp2-sparsities-{name}-fold-{fold}.json') as file:
                 sparsities = json.load(file)
             
-            with open(f'exp3-runtimes-{name}-fold-{fold}.json') as file:
+            with open(f'exp2-runtimes-{name}-fold-{fold}.json') as file:
                 run_times = json.load(file)
 
 

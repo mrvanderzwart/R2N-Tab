@@ -73,7 +73,7 @@ def run_learner(rule_learner, X_train, X_test, Y_train, Y_test, train_set, test_
 
 def run(dataset_name, fold):
     rule_learners = ['r2ntab']
-    #conds = {'house' : [20, 35, 50, 65, 80], 'adult' : [25, 40, 55, 70, 95], 'heloc' : [10, 25, 40, 55, 70], 'magic' : [60, 75, 90, 105, 120], 'chess' : [120, 130, 140, 160, 180], 'diabetes' : [110, 120, 140, 160, 180], 'tictactoe' : [110, 120, 140, 160, 180], 'backnote' : [110, 120, 140, 160, 180]}
+    conds = {'house' : [20, 35, 50, 65, 80], 'adult' : [25, 40, 55, 70, 95], 'heloc' : [10, 25, 40, 55, 70], 'magic' : [60, 75, 90, 105, 120], 'chess' : [120, 130, 140, 160, 180], 'diabetes' : [110, 120, 140, 160, 180], 'tictactoe' : [110, 120, 140, 160, 180], 'backnote' : [110, 120, 140, 160, 180]}
     cancel_lams = {'heloc' : 1e-2, 'house' : 1e-4, 'adult' : 1e-2, 'magic' : 1e-2, 'diabetes' : 1e-2, 'chess' : 1e-4, 'backnote' : 1e-2, 'tictactoe' : 1e-6}
     results = {}
     runs = 5
@@ -129,7 +129,7 @@ def run(dataset_name, fold):
         results['conditions'][learner] = np.mean(learner_conds, axis=0).tolist()
         results['runtimes'][learner] = np.mean(learner_runtimes, axis=0).tolist()
             
-    with open(f'exp4-{dataset_name}-fold-{fold+1}.json', 'w') as file:
+    with open(f'exp3-{dataset_name}-fold-{fold+1}.json', 'w') as file:
         json.dump(results, file)
 
 
@@ -164,7 +164,7 @@ def plot():
 
 
 if __name__ == "__main__":
-    #dataset_name = sys.argv[1]
-    #fold = int(sys.argv[2])
-    #run(dataset_name, fold-1)
+    dataset_name = sys.argv[1]
+    fold = int(sys.argv[2])
+    run(dataset_name, fold-1)
     plot()

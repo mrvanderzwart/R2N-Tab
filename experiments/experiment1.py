@@ -38,8 +38,8 @@ def run_network(network, train_set, test_set, X_train, Y_train, X_test, Y_test, 
 
 
 def run(dataset_name):
-    folds = 1
-    runs = 1
+    folds = 5
+    runs = 5
     results = {}
     
     results['aucs'] = {}
@@ -134,6 +134,6 @@ def plot():
 
 
 if __name__ == "__main__":
-    #dataset_name = sys.argv[1]
-    #run(dataset_name)
+    dataset_name = sys.argv[1]
+    run(dataset_name)
     plot()
